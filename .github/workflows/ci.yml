@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  packages:
+    name: Packages (SDK + React)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck packages
+        run: pnpm -r --filter './packages/*' typecheck
+
+      - name: Test packages
+        run: pnpm -r --filter './packages/*' test
+
+      - name: Build packages
+        run: pnpm -r --filter './packages/*' build
+
+  starter:
+    name: Starter (Next.js)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Build packages (workspace deps)
+        run: pnpm -r --filter './packages/*' build
+
+      - name: Typecheck starter
+        working-directory: apps/starter
+        run: pnpm typecheck
+
+      - name: Build starter
+        working-directory: apps/starter
+        env:
+          # Placeholder env so next build can collect page data
+          DATABASE_URL: postgres://ci:ci@localhost:5432/ci
+          AUTH_SECRET: ci-secret-32chars-aaaaaaaaaaaaaaaa
+          AUTH_TRUST_HOST: 'true'
+          PROXIES_SX_API_KEY: psx_ci_placeholder
+          PROXIES_SX_USERNAME: psx_ci_placeholder
+          STRIPE_SECRET_KEY: sk_test_ci_placeholder
+        run: pnpm build
