@@ -13,10 +13,10 @@
   ],
   "license": "MIT",
   "author": "Proxies.sx",
-  "homepage": "https://github.com/proxies-sx/pool-starter/tree/main/packages/sdk",
+  "homepage": "https://github.com/bolivian-peru/pool-starter/tree/main/packages/sdk",
   "repository": {
     "type": "git",
-    "url": "https://github.com/proxies-sx/pool-starter.git",
+    "url": "https://github.com/bolivian-peru/pool-starter.git",
     "directory": "packages/sdk"
   },
   "type": "module",

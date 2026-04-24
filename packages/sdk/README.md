@@ -234,7 +234,7 @@ try {
 ## Development
 
 ```bash
-git clone https://github.com/proxies-sx/pool-starter
+git clone https://github.com/bolivian-peru/pool-starter
 cd pool-starter
 pnpm install
 pnpm -r --filter @proxies-sx/pool-sdk test

@@ -49,7 +49,7 @@ pool-starter/
 ### Deploy a full storefront in 10 minutes
 
 ```bash
-git clone https://github.com/proxies-sx/pool-starter.git my-shop
+git clone https://github.com/bolivian-peru/pool-starter.git my-shop
 cd my-shop/apps/starter
 cp .env.example .env         # fill in PROXIES_SX_*, STRIPE_*, AUTH_SECRET
 pnpm install

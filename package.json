@@ -4,7 +4,7 @@
   "description": "Open-source reseller toolkit for the Proxies.sx Pool Gateway — SDK, drop-in React component, and Next.js starter template.",
   "repository": {
     "type": "git",
-    "url": "https://github.com/proxies-sx/pool-starter"
+    "url": "https://github.com/bolivian-peru/pool-starter"
   },
   "workspaces": [
     "packages/*",

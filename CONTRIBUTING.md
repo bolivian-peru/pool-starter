@@ -11,7 +11,7 @@ Thanks for your interest in contributing. A quick read below keeps everyone alig
 ## Local setup
 
 ```bash
-git clone https://github.com/proxies-sx/pool-starter.git
+git clone https://github.com/bolivian-peru/pool-starter.git
 cd pool-starter
 pnpm install
 
