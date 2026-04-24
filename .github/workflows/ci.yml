@@ -27,14 +27,19 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
+      # SDK must be built first so its dist/ is resolvable when the React
+      # package typechecks (workspace symlinks point at packages/sdk/dist).
+      - name: Build SDK
+        run: pnpm --filter @proxies-sx/pool-sdk build
+
       - name: Typecheck packages
         run: pnpm -r --filter './packages/*' typecheck
 
       - name: Test packages
         run: pnpm -r --filter './packages/*' test
 
-      - name: Build packages
-        run: pnpm -r --filter './packages/*' build
+      - name: Build React package
+        run: pnpm --filter @proxies-sx/pool-portal-react build
 
   starter:
     name: Starter (Next.js)
