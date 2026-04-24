@@ -1,0 +1,48 @@
+# Self-hosted stack for Pool Portal.
+# Ships Postgres + the Next.js app. No paid services.
+#
+# First run:
+#   cp .env.example .env         # fill in PROXIES_SX_*, STRIPE_*, AUTH_SECRET
+#   docker compose up -d db      # start Postgres
+#   pnpm db:migrate               # apply schema
+#   docker compose up -d app      # start the app
+#
+# Or let compose bring everything up (it waits for db healthcheck):
+#   docker compose up --build -d
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: pool
+      POSTGRES_PASSWORD: pool
+      POSTGRES_DB: pool_portal
+    ports:
+      - '5432:5432'
+    volumes:
+      - pool_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U pool -d pool_portal']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      # Override DATABASE_URL to point at the compose-network Postgres.
+      DATABASE_URL: postgres://pool:pool@db:5432/pool_portal
+      NODE_ENV: production
+    ports:
+      - '3000:3000'
+
+volumes:
+  pool_db_data:

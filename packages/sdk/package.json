@@ -1,0 +1,58 @@
+{
+  "name": "@proxies-sx/pool-sdk",
+  "version": "0.1.0",
+  "description": "Typed TypeScript/JavaScript SDK for the Proxies.sx Pool Gateway reseller API. Mint Pool Access Keys, build proxy URLs, and ship a reseller business.",
+  "keywords": [
+    "proxies",
+    "proxy",
+    "mobile-proxy",
+    "residential-proxy",
+    "reseller",
+    "proxies-sx",
+    "pool-gateway"
+  ],
+  "license": "MIT",
+  "author": "Proxies.sx",
+  "homepage": "https://github.com/proxies-sx/pool-starter/tree/main/packages/sdk",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/proxies-sx/pool-starter.git",
+    "directory": "packages/sdk"
+  },
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "prepublishOnly": "pnpm build && pnpm test && pnpm typecheck"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "tsup": "^8.3.0",
+    "typescript": "^5.5.0",
+    "vitest": "^2.1.0"
+  },
+  "engines": {
+    "node": ">=18.17.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

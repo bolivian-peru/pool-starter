@@ -1,0 +1,217 @@
+/**
+ * Server-side helpers for wiring {@link PoolPortal} into a host app.
+ *
+ * Import from `@proxies-sx/pool-portal-react/server` (never from the main
+ * entry — that would pull React into your server bundle unnecessarily).
+ *
+ * @packageDocumentation
+ */
+
+import type { ProxiesClient, ProxiesApiError } from '@proxies-sx/pool-sdk';
+import type { MeResponse } from './types';
+
+/** Host-supplied hooks that let the handlers resolve who's asking and which key is theirs. */
+export interface PoolApiHandlerOptions {
+  /** Constructed instance of `ProxiesClient` with the reseller API key. */
+  proxies: ProxiesClient;
+
+  /**
+   * Resolve the current request to an authenticated user. Return `null` if
+   * not signed in — handlers will return 401.
+   *
+   * Example (Clerk): `() => auth()?.userId ?? null`
+   * Example (NextAuth): `async () => (await getServerSession(authOptions))?.user?.id ?? null`
+   */
+  getSessionUserId: (req: Request) => string | null | Promise<string | null>;
+
+  /**
+   * Return the `pakKeyId` (Mongo id of the Pool Access Key) belonging to this user,
+   * or `null` if they don't have one yet. The handler looks up current usage
+   * via the SDK.
+   */
+  getUserKeyId: (userId: string) => string | null | Promise<string | null>;
+
+  /**
+   * Optional: override the gateway host included in the response. Passed
+   * through to the browser so `buildProxyUrl` points at your edge if you
+   * run one.
+   */
+  gatewayHost?: string;
+
+  /**
+   * Optional: called after any write (e.g. regenerate) so hosts can log audit events.
+   */
+  onAudit?: (event: { type: string; userId: string; keyId?: string }) => void | Promise<void>;
+}
+
+interface RouteHandlers {
+  /** Handler for `GET /api/pool/me`. */
+  GET: (req: Request) => Promise<Response>;
+  /** Handler for any non-read verbs on nested paths (regenerate, etc.). */
+  POST: (req: Request) => Promise<Response>;
+}
+
+/**
+ * Factory that returns Next.js App Router handlers for the PoolPortal.
+ *
+ * Mount at `app/api/pool/[[...path]]/route.ts`:
+ *
+ * ```ts
+ * import { createPoolApiHandlers } from '@proxies-sx/pool-portal-react/server';
+ * import { ProxiesClient } from '@proxies-sx/pool-sdk';
+ * import { auth } from '@/lib/auth';
+ * import { db } from '@/lib/db';
+ *
+ * export const { GET, POST } = createPoolApiHandlers({
+ *   proxies: new ProxiesClient({
+ *     apiKey: process.env.PROXIES_SX_API_KEY!,
+ *     proxyUsername: process.env.PROXIES_SX_USERNAME!,
+ *   }),
+ *   getSessionUserId: () => auth()?.userId ?? null,
+ *   getUserKeyId: async (uid) => (await db.customers.get(uid))?.pakKeyId ?? null,
+ * });
+ * ```
+ *
+ * Exposes:
+ * - `GET  /api/pool/me`         — current user's pak_ + usage (auth required)
+ * - `GET  /api/pool/stock`      — public pool stock
+ * - `GET  /api/pool/incidents`  — public incidents
+ * - `POST /api/pool/regenerate` — rotate current user's key (auth required)
+ */
+export function createPoolApiHandlers(options: PoolApiHandlerOptions): RouteHandlers {
+  const {
+    proxies,
+    getSessionUserId,
+    getUserKeyId,
+    gatewayHost,
+    onAudit,
+  } = options;
+
+  if (!proxies.proxyUsername) {
+    throw new Error(
+      'createPoolApiHandlers: ProxiesClient was constructed without a `proxyUsername`. ' +
+        'Set it in the ClientConfig — handlers need it to return the public reseller id.',
+    );
+  }
+
+  const json = (data: unknown, init?: ResponseInit): Response =>
+    new Response(JSON.stringify(data), {
+      ...init,
+      headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) },
+    });
+
+  const pathOf = (req: Request): string => {
+    try {
+      const u = new URL(req.url);
+      // Strip a trailing slash for consistent matching
+      return u.pathname.replace(/\/+$/, '');
+    } catch {
+      return '';
+    }
+  };
+
+  const handleMe = async (req: Request): Promise<Response> => {
+    const userId = await getSessionUserId(req);
+    if (!userId) return json({ error: 'unauthorized' }, { status: 401 });
+
+    const keyId = await getUserKeyId(userId);
+    if (!keyId) return json({ error: 'no_key' }, { status: 404 });
+
+    let key;
+    try {
+      // The SDK doesn't expose a single-key GET; list + filter is the supported
+      // path. For hosts with many keys this can be cached or replaced with a
+      // direct GET once the API adds one.
+      const all = await proxies.poolKeys.list();
+      key = all.find((k) => k.id === keyId);
+    } catch (err) {
+      const apiErr = err as ProxiesApiError;
+      return json(
+        { error: 'upstream_error', status: apiErr.status ?? 500 },
+        { status: apiErr.status && apiErr.status < 600 ? apiErr.status : 502 },
+      );
+    }
+    if (!key) return json({ error: 'key_missing' }, { status: 404 });
+
+    const response: MeResponse = {
+      proxyUsername: proxies.proxyUsername!,
+      pakKey: key.key,
+      pakKeyId: key.id,
+      usage: {
+        usedMB: key.trafficUsedMB,
+        usedGB: key.trafficUsedGB ?? key.trafficUsedMB / 1024,
+        capGB: key.trafficCapGB,
+        enabled: key.enabled,
+        lastUsedAt: key.lastUsedAt,
+      },
+      ...(gatewayHost ? { gatewayHost } : {}),
+    };
+    return json(response, {
+      headers: { 'Cache-Control': 'private, no-store' },
+    });
+  };
+
+  const handleStock = async (): Promise<Response> => {
+    try {
+      const stock = await proxies.pool.getStock();
+      return json(stock, { headers: { 'Cache-Control': 'public, max-age=30' } });
+    } catch (err) {
+      const apiErr = err as ProxiesApiError;
+      return json(
+        { error: 'upstream_error' },
+        { status: apiErr.status && apiErr.status < 600 ? apiErr.status : 502 },
+      );
+    }
+  };
+
+  const handleIncidents = async (): Promise<Response> => {
+    try {
+      const incidents = await proxies.pool.getIncidents();
+      return json(incidents, { headers: { 'Cache-Control': 'public, max-age=60' } });
+    } catch (err) {
+      const apiErr = err as ProxiesApiError;
+      return json(
+        { error: 'upstream_error' },
+        { status: apiErr.status && apiErr.status < 600 ? apiErr.status : 502 },
+      );
+    }
+  };
+
+  const handleRegenerate = async (req: Request): Promise<Response> => {
+    const userId = await getSessionUserId(req);
+    if (!userId) return json({ error: 'unauthorized' }, { status: 401 });
+
+    const keyId = await getUserKeyId(userId);
+    if (!keyId) return json({ error: 'no_key' }, { status: 404 });
+
+    try {
+      const result = await proxies.poolKeys.regenerate(keyId);
+      if (onAudit) {
+        await onAudit({ type: 'key.regenerated', userId, keyId });
+      }
+      return json(result);
+    } catch (err) {
+      const apiErr = err as ProxiesApiError;
+      return json(
+        { error: 'upstream_error' },
+        { status: apiErr.status && apiErr.status < 600 ? apiErr.status : 502 },
+      );
+    }
+  };
+
+  const GET = async (req: Request): Promise<Response> => {
+    const p = pathOf(req);
+    if (p.endsWith('/me')) return handleMe(req);
+    if (p.endsWith('/stock')) return handleStock();
+    if (p.endsWith('/incidents')) return handleIncidents();
+    return json({ error: 'not_found' }, { status: 404 });
+  };
+
+  const POST = async (req: Request): Promise<Response> => {
+    const p = pathOf(req);
+    if (p.endsWith('/regenerate')) return handleRegenerate(req);
+    return json({ error: 'not_found' }, { status: 404 });
+  };
+
+  return { GET, POST };
+}
