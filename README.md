@@ -5,6 +5,7 @@
 **Open-source reseller toolkit for the Proxies.sx Pool Gateway.**
 **Ship a branded mobile-proxy business in an afternoon.**
 
+[![CI](https://github.com/bolivian-peru/pool-starter/actions/workflows/ci.yml/badge.svg)](https://github.com/bolivian-peru/pool-starter/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Node ≥ 20](https://img.shields.io/badge/node-%E2%89%A520-brightgreen.svg)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-blue.svg)](https://www.typescriptlang.org/)
