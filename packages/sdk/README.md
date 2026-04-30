@@ -75,11 +75,47 @@ interface ClientConfig {
 
 | Method | Returns | Description |
 |---|---|---|
-| `create({ label, trafficCapGB? })` | `PoolAccessKey` | Mint a new key |
+| `create({ label, trafficCapGB?, expiresAt? })` | `PoolAccessKey` | Mint a new key |
 | `list()` | `PoolAccessKey[]` | List all your keys with usage |
-| `update(keyId, { label?, enabled?, trafficCapGB? })` | `PoolAccessKey` | Change any field |
+| `update(keyId, { label?, enabled?, trafficCapGB?, expiresAt? })` | `PoolAccessKey` | Change any field |
 | `regenerate(keyId)` | `{ id, key }` | Rotate the secret value (invalidates old) |
 | `delete(keyId)` | `void` | Permanently delete |
+
+#### Expiry — `expiresAt` (v0.2.0+)
+
+Ship time-bounded GB credits ("10 GB, use within 60 days") by passing an
+`expiresAt` (ISO datetime or `Date`) on `create` / `update`. Past the
+expiry, the gateway rejects the key immediately, and our nightly cron
+flips `enabled=false` on the record.
+
+```ts
+// Mint with a 60-day expiry
+const key = await proxies.poolKeys.create({
+  label: 'customer:alice',
+  trafficCapGB: 10,
+  expiresAt: new Date(Date.now() + 60 * 86_400_000).toISOString(),
+});
+
+// On top-up, extend the expiry and bump the cap in one call
+await proxies.poolKeys.update(key.id, {
+  trafficCapGB: 25, // they bought 15 more
+  expiresAt: new Date(Date.now() + 60 * 86_400_000).toISOString(), // fresh 60 days
+});
+
+// Remove expiry (perpetual key)
+await proxies.poolKeys.update(key.id, { expiresAt: null });
+```
+
+Helpers exported from the package:
+```ts
+import { isPoolKeyExpired, daysUntilPoolKeyExpiry } from '@proxies-sx/pool-sdk';
+
+isPoolKeyExpired(key);              // boolean — true if past expiry
+daysUntilPoolKeyExpiry(key);        // number | null — days until expiry, null if no expiry
+```
+
+The list endpoint also returns `isExpired: boolean` computed server-side
+(useful in dashboards before the nightly cron has flipped `enabled`).
 
 ### `proxies.pool` (public endpoints)
 

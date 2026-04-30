@@ -39,10 +39,27 @@ export interface PoolAccessKey {
   trafficUsedMB: number;
   /** Same value as {@link trafficUsedMB} but expressed in GB for display. */
   trafficUsedGB?: number;
+  /**
+   * Optional ISO datetime when this key stops working. After this moment,
+   * gateway requests are rejected and the platform's nightly cron flips
+   * `enabled` to `false`. `null` = no expiry.
+   *
+   * Common pattern: ship a "60-day" credit by setting this to
+   * `new Date(Date.now() + 60*86400_000).toISOString()` on mint, then
+   * extending it on each top-up via `update({ expiresAt })`.
+   */
+  expiresAt: string | null;
+  /**
+   * Convenience flag computed server-side: `true` if `expiresAt` is in
+   * the past. Use this in dashboards before the nightly cron has run.
+   */
+  isExpired?: boolean;
   /** ISO timestamp of the last request seen through the gateway, or null. */
   lastUsedAt: string | null;
   /** Unix ms when the key was first minted. */
   createdAt: number;
+  /** Unix ms when the key was last modified. */
+  updatedAt?: number;
 }
 
 /** Input to {@link ProxiesClient.poolKeys.create}. */
@@ -51,6 +68,12 @@ export interface CreatePoolAccessKeyInput {
   label: string;
   /** Traffic cap in GB. Pass `null` for unbounded. */
   trafficCapGB?: number | null;
+  /**
+   * Optional expiry. Accepts ISO 8601 string or `Date`. The platform validates
+   * it must be in the future (use `enabled: false` to disable a key, or
+   * `null` to remove an existing expiry on update).
+   */
+  expiresAt?: string | Date | null;
 }
 
 /** Input to {@link ProxiesClient.poolKeys.update}. */
@@ -58,6 +81,11 @@ export interface UpdatePoolAccessKeyInput {
   label?: string;
   enabled?: boolean;
   trafficCapGB?: number | null;
+  /**
+   * Pass an ISO/Date in the future to set or extend, `null` to remove an
+   * existing expiry, or omit to leave unchanged. Omit/extend on top-up.
+   */
+  expiresAt?: string | Date | null;
 }
 
 /** Optional tokens appended to the proxy username. All fields are optional. */
@@ -131,4 +159,50 @@ export interface ClientConfig {
    * Defaults to global `fetch`.
    */
   fetch?: typeof fetch;
+}
+
+// ────────────────────────────────────────────────────────────────────────
+//  Expiry helpers
+// ────────────────────────────────────────────────────────────────────────
+
+/**
+ * `true` when the key has an `expiresAt` AND that moment has passed.
+ * Returns `false` for keys with no expiry.
+ *
+ * Prefer the server-computed `key.isExpired` field when available — it
+ * uses the platform's clock. This helper is for places where you only
+ * have the raw `expiresAt` string.
+ */
+export function isPoolKeyExpired(
+  keyOrExpiry: Pick<PoolAccessKey, 'expiresAt'> | string | Date | null | undefined,
+  now: number = Date.now(),
+): boolean {
+  const raw =
+    typeof keyOrExpiry === 'string' || keyOrExpiry instanceof Date
+      ? keyOrExpiry
+      : keyOrExpiry?.expiresAt;
+  if (!raw) return false;
+  const t = raw instanceof Date ? raw.getTime() : new Date(raw).getTime();
+  return Number.isFinite(t) && t <= now;
+}
+
+/**
+ * Days remaining until the key expires. Returns `null` if no expiry,
+ * `0` when within the same day as expiry, negative numbers for already-
+ * expired keys (so dashboards can show "expired 3 days ago" if you want).
+ *
+ * Uses `Math.ceil` so a key expiring in 1.2 days renders as "2 days remaining".
+ */
+export function daysUntilPoolKeyExpiry(
+  keyOrExpiry: Pick<PoolAccessKey, 'expiresAt'> | string | Date | null | undefined,
+  now: number = Date.now(),
+): number | null {
+  const raw =
+    typeof keyOrExpiry === 'string' || keyOrExpiry instanceof Date
+      ? keyOrExpiry
+      : keyOrExpiry?.expiresAt;
+  if (!raw) return null;
+  const t = raw instanceof Date ? raw.getTime() : new Date(raw).getTime();
+  if (!Number.isFinite(t)) return null;
+  return Math.ceil((t - now) / 86_400_000);
 }

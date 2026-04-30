@@ -232,13 +232,39 @@ const proxyUrl = proxies.buildProxyUrl(key.key, {
 
 **Other operations:**
 ```ts
-await proxies.poolKeys.list();                     // list all keys with usage
-await proxies.poolKeys.update(keyId, { label });   // update label / cap / enabled
+await proxies.poolKeys.list();                     // list all keys with usage + isExpired flag
+await proxies.poolKeys.update(keyId, { label });   // update label / cap / enabled / expiresAt
 await proxies.poolKeys.regenerate(keyId);          // rotate the secret (old pak_ stops working immediately)
 await proxies.poolKeys.delete(keyId);              // permanent
 await proxies.pool.getStock();                     // live endpoint count by country
 await proxies.pool.getIncidents();                 // active pool incidents
 ```
+
+**Time-bounded credits with `expiresAt` (v0.2.0+):**
+```ts
+// Mint a 60-day "use it or lose it" credit
+const key = await proxies.poolKeys.create({
+  label: 'customer:alice',
+  trafficCapGB: 10,
+  expiresAt: new Date(Date.now() + 60 * 86_400_000).toISOString(),
+});
+
+// On top-up, bump cap AND push expiry forward in one call
+await proxies.poolKeys.update(key.id, {
+  trafficCapGB: 25,
+  expiresAt: new Date(Date.now() + 60 * 86_400_000).toISOString(),
+});
+
+// Remove the expiry (perpetual key)
+await proxies.poolKeys.update(key.id, { expiresAt: null });
+
+// Helpers
+import { isPoolKeyExpired, daysUntilPoolKeyExpiry } from '@proxies-sx/pool-sdk';
+isPoolKeyExpired(key);          // boolean
+daysUntilPoolKeyExpiry(key);    // number | null
+```
+
+The gateway rejects expired keys **immediately** (no wait for the nightly cron). The platform's daily cron (03:30 UTC) sets `enabled=false` on past-expiry keys for tidier admin queries.
 
 ---
 
@@ -252,9 +278,9 @@ Use when the user's backend is **not JavaScript**. The SDK is a thin wrapper aro
 
 | Method | Path | Purpose |
 |---|---|---|
-| `POST` | `/v1/reseller/pool-keys` | Mint a `pak_` key |
-| `GET` | `/v1/reseller/pool-keys` | List keys + usage |
-| `PATCH` | `/v1/reseller/pool-keys/{keyId}` | Update label / cap / enabled |
+| `POST` | `/v1/reseller/pool-keys` | Mint a `pak_` key (accepts optional `expiresAt` ISO datetime) |
+| `GET` | `/v1/reseller/pool-keys` | List keys + usage (returns `expiresAt`, server-computed `isExpired`) |
+| `PATCH` | `/v1/reseller/pool-keys/{keyId}` | Update `label` / `enabled` / `trafficCapGB` / `expiresAt` |
 | `POST` | `/v1/reseller/pool-keys/{keyId}/regenerate` | Rotate secret (old pak_ stops working immediately) |
 | `DELETE` | `/v1/reseller/pool-keys/{keyId}` | Delete permanently |
 

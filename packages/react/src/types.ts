@@ -28,6 +28,14 @@ export interface MeResponse {
     capGB: number | null;
     enabled: boolean;
     lastUsedAt: string | null;
+    /**
+     * Optional ISO datetime when this customer's credits expire. The host
+     * app's `/api/pool/me` endpoint should populate this from the pool key's
+     * `expiresAt` field. `null` = no expiry.
+     */
+    expiresAt?: string | null;
+    /** Server-computed: `true` when `expiresAt` is in the past. */
+    isExpired?: boolean;
   };
   /** Optional: gateway host to use when building URLs. Defaults to gw.proxies.sx. */
   gatewayHost?: string;

@@ -27,3 +27,5 @@ export type {
   Incident,
   ClientConfig,
 } from './types';
+
+export { isPoolKeyExpired, daysUntilPoolKeyExpiry } from './types';

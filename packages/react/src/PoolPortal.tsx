@@ -349,6 +349,10 @@ export function PoolPortal(props: PoolPortalProps): JSX.Element {
                 This key is <strong>disabled</strong>. Contact support to re-enable.
               </div>
             )}
+            <ExpiryNotice
+              expiresAt={usage.expiresAt}
+              isExpired={usage.isExpired}
+            />
           </div>
         )}
 
@@ -364,6 +368,53 @@ export function PoolPortal(props: PoolPortalProps): JSX.Element {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Renders a status banner about the customer's credit expiry.
+ * - No expiry → renders nothing
+ * - Expired → red banner with "renew" guidance
+ * - ≤ 7 days → amber banner with countdown
+ * - > 7 days → small dim line ("expires …")
+ */
+function ExpiryNotice({
+  expiresAt,
+  isExpired,
+}: {
+  expiresAt?: string | null;
+  isExpired?: boolean;
+}): JSX.Element | null {
+  if (!expiresAt) return null;
+  const expiryMs = new Date(expiresAt).getTime();
+  if (!Number.isFinite(expiryMs)) return null;
+
+  const expired = isExpired ?? expiryMs <= Date.now();
+  const days = Math.ceil((expiryMs - Date.now()) / 86_400_000);
+  const formatted = new Date(expiresAt).toLocaleDateString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  });
+
+  if (expired) {
+    return (
+      <div className="psx-banner psx-banner-error" style={{ marginTop: 8 }}>
+        Credits <strong>expired on {formatted}</strong>. Top up to reactivate the key.
+      </div>
+    );
+  }
+  if (days <= 7) {
+    return (
+      <div className="psx-banner psx-banner-warn" style={{ marginTop: 8 }}>
+        Credits expire in <strong>{days} day{days === 1 ? '' : 's'}</strong> ({formatted}). Top up to extend.
+      </div>
+    );
+  }
+  return (
+    <div className="psx-expiry-line" style={{ marginTop: 6, fontSize: 12, opacity: 0.7 }}>
+      Expires {formatted} ({days} days remaining)
     </div>
   );
 }
