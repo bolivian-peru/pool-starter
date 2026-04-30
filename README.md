@@ -3,16 +3,33 @@
 # pool-starter
 
 **Open-source reseller toolkit for the Proxies.sx Pool Gateway.**
-**Ship a branded mobile-proxy business in an afternoon.**
+**Ship a branded mobile-proxy business in an afternoon — or embed mobile proxies into any app, in any language.**
 
+[![npm: pool-sdk](https://img.shields.io/npm/v/@proxies-sx/pool-sdk?label=%40proxies-sx%2Fpool-sdk)](https://www.npmjs.com/package/@proxies-sx/pool-sdk)
+[![npm: pool-portal-react](https://img.shields.io/npm/v/@proxies-sx/pool-portal-react?label=%40proxies-sx%2Fpool-portal-react)](https://www.npmjs.com/package/@proxies-sx/pool-portal-react)
 [![CI](https://github.com/bolivian-peru/pool-starter/actions/workflows/ci.yml/badge.svg)](https://github.com/bolivian-peru/pool-starter/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Node ≥ 20](https://img.shields.io/badge/node-%E2%89%A520-brightgreen.svg)](https://nodejs.org)
-[![TypeScript](https://img.shields.io/badge/TypeScript-strict-blue.svg)](https://www.typescriptlang.org/)
 
-[**Why**](#why) · [**Quickstart**](#quickstart) · [**Packages**](#packages) · [**Architecture**](#architecture) · [**Customizing**](#customizing) · [**Deploy**](#deploy) · [**Contributing**](#contributing)
+[**Skill (AI agents)**](#for-ai-agents-and-code-builders) · [**Pick a path**](#pick-an-integration-path) · [**Quickstart**](#quickstart) · [**Architecture**](#architecture) · [**Deploy**](#deploy)
 
 </div>
+
+---
+
+## For AI agents and code builders
+
+If you're an AI assistant (Claude / Cursor / Copilot / etc.) or any tool integrating this into a user's app, **read [`SKILL.md`](./SKILL.md) first**. It contains:
+
+- Decision tree for picking the right integration path (4 paths)
+- Per-language code patterns (TypeScript, PHP, Python, Go, Ruby + curl)
+- The proxy URL token DSL grammar
+- Security non-negotiables for production
+- A smoke-test checklist to verify the integration before reporting "done"
+
+`SKILL.md` follows the [Anthropic skill format](https://github.com/anthropics/skills) and is designed to load into any AI coding tool's context.
+
+For human-readable depth: [`packages/sdk/README.md`](./packages/sdk/README.md), [`packages/react/README.md`](./packages/react/README.md), [`apps/starter/README.md`](./apps/starter/README.md).
 
 ---
 
@@ -22,7 +39,22 @@ Traditional proxy resale means buying modem hardware, juggling SIM plans, runnin
 
 The [Proxies.sx Pool Gateway](https://client.proxies.sx/pool-proxy) takes care of the infrastructure — you get a single endpoint (`gw.proxies.sx:7000`), wholesale pricing with volume tiers, and a per-customer sub-key system (`pak_*`). Live pricing: see [client.proxies.sx](https://client.proxies.sx) or [api.proxies.sx/v1/x402/pricing](https://api.proxies.sx/v1/x402/pricing).
 
-This repo takes care of the **software** — SDK, drop-in React component, and a full Next.js storefront. Zero paid dependencies beyond what you choose (SMTP provider, hosting).
+This repo takes care of the **software** — SDK, drop-in React component, full Next.js storefront, and a language-agnostic REST API. Zero paid dependencies beyond what you choose (SMTP provider, hosting).
+
+---
+
+## Pick an integration path
+
+Match your stack to a path. The integration differs significantly between them — don't mix.
+
+| If you... | Use | Effort |
+|---|---|---|
+| Want a **branded reseller storefront**, starting fresh | **PATH A** — Clone [`apps/starter/`](./apps/starter) (Next.js + Auth.js + Stripe + Postgres) | ~10 min |
+| Already have a **React/Next.js app** and want a drop-in dashboard | **PATH B** — `<PoolPortal />` component | ~15 min |
+| Have a **non-React JS app** (Express, Fastify, Hono, Vue+API, plain Node, Bun, Deno, Workers) | **PATH C** — SDK only | ~10 min |
+| Backend is **PHP / Python / Go / Ruby / Rust / Elixir** (anything not JS) | **PATH D** — REST API directly | ~5 min |
+
+Full decision tree + step-by-step for each path lives in [`SKILL.md`](./SKILL.md).
 
 ---
 
@@ -31,17 +63,21 @@ This repo takes care of the **software** — SDK, drop-in React component, and a
 ```
 pool-starter/
 ├── packages/
-│   ├── sdk/         → @proxies-sx/pool-sdk           Typed API client
-│   └── react/       → @proxies-sx/pool-portal-react  Drop-in UI + server handlers
-└── apps/
-    └── starter/     → Full Next.js storefront template
+│   ├── sdk/         → @proxies-sx/pool-sdk           Typed API client (npm)
+│   └── react/       → @proxies-sx/pool-portal-react  Drop-in UI + server handlers (npm)
+├── apps/
+│   └── starter/     → Full Next.js storefront template
+├── SKILL.md         → AI-agent integration guide (Anthropic skill format)
+└── CLAUDE.md        → Repo invariants for agents working ON the SDK code
 ```
 
-| Package | Version | What it's for |
-|---------|---------|---------------|
-| [`@proxies-sx/pool-sdk`](./packages/sdk) | `0.1.0` | Mint Pool Access Keys, build proxy URLs, fetch usage. Zero deps. Works in Node, Bun, Deno, Edge Workers. |
-| [`@proxies-sx/pool-portal-react`](./packages/react) | `0.1.0` | `<PoolPortal />` component + headless hooks + `createPoolApiHandlers()` Next.js route factory. |
-| [`apps/starter`](./apps/starter) | `0.1.0` | Complete Next.js App Router storefront — landing, pricing, magic-link login, Stripe checkout, self-hosted Postgres. Under 1,000 LOC including comments. |
+| Package | npm | What it's for |
+|---------|-----|---------------|
+| [`@proxies-sx/pool-sdk`](./packages/sdk) | [![npm](https://img.shields.io/npm/v/@proxies-sx/pool-sdk)](https://www.npmjs.com/package/@proxies-sx/pool-sdk) | Mint Pool Access Keys, build proxy URLs, fetch usage. Zero runtime deps. Works in Node, Bun, Deno, Edge Workers. |
+| [`@proxies-sx/pool-portal-react`](./packages/react) | [![npm](https://img.shields.io/npm/v/@proxies-sx/pool-portal-react)](https://www.npmjs.com/package/@proxies-sx/pool-portal-react) | `<PoolPortal />` component + headless hooks + `createPoolApiHandlers()` Next.js route factory. |
+| [`apps/starter`](./apps/starter) | (template) | Complete Next.js App Router storefront — landing, pricing, magic-link login, Stripe checkout, self-hosted Postgres. Under 1,000 LOC including comments. |
+
+Non-JS users: skip the npm packages and call the REST API directly. See [`SKILL.md` — PATH D](./SKILL.md#path-d--direct-rest-api-php--python--go--ruby--any-language).
 
 ---
 
