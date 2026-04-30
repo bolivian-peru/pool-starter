@@ -105,7 +105,7 @@ export interface Incident {
 export interface ClientConfig {
   /**
    * Reseller API key (`psx_...`) — mint at
-   * https://client.proxies.sx/api-keys with scope `customers:write`.
+   * https://client.proxies.sx/account with scope `customers:write`.
    * Keep this server-side only; never expose to browsers.
    */
   apiKey: string;

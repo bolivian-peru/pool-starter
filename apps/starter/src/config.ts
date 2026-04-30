@@ -38,8 +38,9 @@ export const config = {
 
   /**
    * Pricing tiers shown on the landing page and offered in Stripe checkout.
-   * Wholesale cost from Proxies.sx is $4/GB → $2.40/GB at 250+ GB volume.
-   * Your markup is whatever you set below.
+   * Wholesale rates have volume tiers — check your client.proxies.sx
+   * dashboard or api.proxies.sx/v1/x402/pricing for current values.
+   * Your retail markup is whatever you set below.
    */
   pricing: [
     { id: 'starter', displayName: 'Starter', gb: 5, priceUsd: 35, tagline: 'Kick the tires' },

@@ -5,7 +5,7 @@
 
 > Typed TypeScript/JavaScript client for the **[Proxies.sx Pool Gateway](https://client.proxies.sx/pool-proxy)** reseller API. Mint Pool Access Keys, build proxy URLs, and ship a branded reseller business in an hour instead of a month.
 
-Wholesale cost: **$4/GB → $2.40/GB at 250+ GB volume**. You set your resale price. One API call mints a per-customer sub-key with its own traffic cap.
+Wholesale pricing with volume tiers — current rates in your [client.proxies.sx](https://client.proxies.sx) dashboard or via [api.proxies.sx/v1/x402/pricing](https://api.proxies.sx/v1/x402/pricing). You set your resale price. One API call mints a per-customer sub-key with its own traffic cap.
 
 ---
 
@@ -62,7 +62,7 @@ That's the whole flow. Everything else is bookkeeping.
 
 ```ts
 interface ClientConfig {
-  apiKey: string;              // Required. psx_... from client.proxies.sx/api-keys
+  apiKey: string;              // Required. psx_... from client.proxies.sx/account
   proxyUsername?: string;      // e.g. "psx_abc123" — required to call buildProxyUrl
   baseUrl?: string;            // Default: "https://api.proxies.sx/v1"
   gatewayHost?: string;        // Default: "gw.proxies.sx"
@@ -228,6 +228,105 @@ try {
 - Zero dependencies at runtime
 - Works in Node 18.17+, Bun, Deno (with `npm:` specifier), Vercel Edge, Cloudflare Workers
 - Pass `fetch` in config if your runtime lacks global `fetch`
+
+---
+
+## Not using JavaScript? Call the REST API directly
+
+This SDK is a thin wrapper around a public REST API. Any language with an HTTP client can integrate — PHP, Python, Ruby, Go, Rust, Elixir, even bash + curl.
+
+**Auth header:** `X-API-Key: psx_...` (mint at [client.proxies.sx/account](https://client.proxies.sx/account)).
+
+**Endpoints:**
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/v1/reseller/pool-keys` | Mint a `pak_` key for a customer |
+| `GET` | `/v1/reseller/pool-keys` | List your keys with usage |
+| `PATCH` | `/v1/reseller/pool-keys/:keyId` | Update label / cap / enabled |
+| `POST` | `/v1/reseller/pool-keys/:keyId/regenerate` | Rotate the secret (old value invalidated immediately) |
+| `DELETE` | `/v1/reseller/pool-keys/:keyId` | Permanently delete |
+
+**Mint a key with curl:**
+
+```bash
+curl -X POST https://api.proxies.sx/v1/reseller/pool-keys \
+  -H "X-API-Key: psx_YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"label":"customer:alice@example.com","trafficCapGB":10}'
+
+# Response:
+# { "id": "...", "key": "pak_...", "label": "...", "trafficCapGB": 10, ... }
+```
+
+**The proxy URL itself is plain HTTP Basic auth** — works with any HTTP/SOCKS5 client in any language. The username carries optional config tokens:
+
+```
+http://psx_RESELLER_USERNAME-mbl-us-sid-alice-rot-sticky:pak_CUSTOMER_KEY@gw.proxies.sx:7000
+```
+
+Token format inside the username (separated by `-`):
+- `mbl` / `peer` — pool type (mobile modems vs residential peers)
+- `us` / `de` / `pl` / `fr` / `es` / `gb` — country code
+- `sid-<id>` — sticky session id (same `sid` = same exit IP for the session)
+- `rot-sticky` / `rot-auto10` / `rot-auto30` / `rot-hard` / `rot-none` — rotation mode
+- `city-<name>` / `carrier-<name>` — optional filters
+
+### Examples in other languages
+
+**Python (with `requests`):**
+```python
+import requests
+
+resp = requests.post(
+    "https://api.proxies.sx/v1/reseller/pool-keys",
+    headers={"X-API-Key": "psx_YOUR_API_KEY"},
+    json={"label": "customer:alice", "trafficCapGB": 10},
+)
+key = resp.json()["key"]  # "pak_..."
+
+# Use it as a proxy:
+proxies = {
+    "http":  f"http://psx_RESELLER-mbl-us-sid-alice-rot-sticky:{key}@gw.proxies.sx:7000",
+    "https": f"http://psx_RESELLER-mbl-us-sid-alice-rot-sticky:{key}@gw.proxies.sx:7000",
+}
+r = requests.get("https://api.ipify.org", proxies=proxies)
+```
+
+**PHP (with Guzzle or cURL):**
+```php
+$ch = curl_init('https://api.proxies.sx/v1/reseller/pool-keys');
+curl_setopt_array($ch, [
+    CURLOPT_POST => true,
+    CURLOPT_RETURNTRANSFER => true,
+    CURLOPT_HTTPHEADER => [
+        'X-API-Key: psx_YOUR_API_KEY',
+        'Content-Type: application/json',
+    ],
+    CURLOPT_POSTFIELDS => json_encode(['label' => 'customer:alice', 'trafficCapGB' => 10]),
+]);
+$key = json_decode(curl_exec($ch), true)['key']; // pak_...
+```
+
+**Go:**
+```go
+req, _ := http.NewRequest("POST", "https://api.proxies.sx/v1/reseller/pool-keys",
+    strings.NewReader(`{"label":"customer:alice","trafficCapGB":10}`))
+req.Header.Set("X-API-Key", "psx_YOUR_API_KEY")
+req.Header.Set("Content-Type", "application/json")
+resp, _ := http.DefaultClient.Do(req)
+```
+
+**Ruby:**
+```ruby
+require 'net/http'; require 'json'
+uri = URI('https://api.proxies.sx/v1/reseller/pool-keys')
+req = Net::HTTP::Post.new(uri, 'X-API-Key' => 'psx_YOUR_API_KEY', 'Content-Type' => 'application/json')
+req.body = { label: 'customer:alice', trafficCapGB: 10 }.to_json
+resp = Net::HTTP.start(uri.host, uri.port, use_ssl: true) { |h| h.request(req) }
+```
+
+**Full OpenAPI spec:** [api.proxies.sx/docs/api-json](https://api.proxies.sx/docs/api-json) (interactive at [api.proxies.sx/docs/api](https://api.proxies.sx/docs/api))
 
 ---
 

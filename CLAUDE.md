@@ -12,9 +12,9 @@
 
 ## The product this depends on
 
-Upstream service: **Proxies.sx Pool Gateway** at `gw.proxies.sx:7000` (HTTP) and `:7001` (SOCKS5). Real mobile + residential proxies in 6 countries (DE, PL, US, FR, ES, GB). Wholesale pricing: $4/GB → $2.40/GB at 250+ GB volume.
+Upstream service: **Proxies.sx Pool Gateway** at `gw.proxies.sx:7000` (HTTP) and `:7001` (SOCKS5). Real mobile + residential proxies in 6 countries (DE, PL, US, FR, ES, GB). Wholesale pricing has volume tiers — live rates in `client.proxies.sx` dashboard. Don't hardcode prices anywhere.
 
-Reseller API: `https://api.proxies.sx/v1/reseller/pool-keys`. Auth with an API key (`psx_*`) minted at `client.proxies.sx/api-keys` with scope `customers:write`.
+Reseller API: `https://api.proxies.sx/v1/reseller/pool-keys`. Auth with an API key (`psx_*`) minted at `client.proxies.sx/account` with scope `customers:write`.
 
 ## How auth works between the layers
 

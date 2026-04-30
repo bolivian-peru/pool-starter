@@ -20,7 +20,7 @@
 
 Traditional proxy resale means buying modem hardware, juggling SIM plans, running a farm, and wiring in a developer. Every price hike from your supplier eats your margin.
 
-The [Proxies.sx Pool Gateway](https://client.proxies.sx/pool-proxy) takes care of the infrastructure — you get a single endpoint (`gw.proxies.sx:7000`), wholesale pricing (**$4/GB → $2.40/GB at 250+ GB**), and a per-customer sub-key system (`pak_*`).
+The [Proxies.sx Pool Gateway](https://client.proxies.sx/pool-proxy) takes care of the infrastructure — you get a single endpoint (`gw.proxies.sx:7000`), wholesale pricing with volume tiers, and a per-customer sub-key system (`pak_*`). Live pricing: see [client.proxies.sx](https://client.proxies.sx) or [api.proxies.sx/v1/x402/pricing](https://api.proxies.sx/v1/x402/pricing).
 
 This repo takes care of the **software** — SDK, drop-in React component, and a full Next.js storefront. Zero paid dependencies beyond what you choose (SMTP provider, hosting).
 
@@ -100,6 +100,40 @@ const url = proxies.buildProxyUrl(key.key, { country: 'us', rotation: 'sticky' }
 ```
 
 Details: [SDK README](./packages/sdk/README.md).
+
+### Not on JavaScript? You can still integrate
+
+The SDK is a thin wrapper around a public REST API. **Any language with an HTTP client works** — PHP, Python, Ruby, Go, Rust, Elixir, even bash + curl.
+
+```bash
+# Mint a pak_ key for a customer
+curl -X POST https://api.proxies.sx/v1/reseller/pool-keys \
+  -H "X-API-Key: psx_YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"label":"customer:alice","trafficCapGB":10}'
+
+# → { "id": "...", "key": "pak_...", "trafficCapGB": 10, ... }
+```
+
+The proxy URL is just plain HTTP Basic auth — works with any HTTP/SOCKS5 client in any language:
+
+```
+http://psx_RESELLER-mbl-us-sid-alice-rot-sticky:pak_CUSTOMER_KEY@gw.proxies.sx:7000
+```
+
+Endpoints (`X-API-Key` auth, [`psx_` keys minted at client.proxies.sx/account](https://client.proxies.sx/account)):
+
+| Method | Path | Purpose |
+|---|---|---|
+| `POST` | `/v1/reseller/pool-keys` | Mint key |
+| `GET` | `/v1/reseller/pool-keys` | List keys + usage |
+| `PATCH` | `/v1/reseller/pool-keys/:id` | Update label / cap |
+| `POST` | `/v1/reseller/pool-keys/:id/regenerate` | Rotate secret |
+| `DELETE` | `/v1/reseller/pool-keys/:id` | Delete |
+
+Full spec: [api.proxies.sx/docs/api](https://api.proxies.sx/docs/api) (Swagger UI) | [api.proxies.sx/docs/api-json](https://api.proxies.sx/docs/api-json) (OpenAPI 3.0)
+
+Per-language examples (Python, PHP, Go, Ruby): see [SDK README](./packages/sdk/README.md#not-using-javascript-call-the-rest-api-directly).
 
 ---
 
@@ -197,7 +231,7 @@ Details: [apps/starter/README.md](./apps/starter/README.md).
 - Node.js 20+
 - pnpm 9+ (`corepack enable`)
 - Docker (optional — you can bring your own Postgres)
-- Proxies.sx reseller API key (mint at [client.proxies.sx/api-keys](https://client.proxies.sx/api-keys))
+- Proxies.sx reseller API key (mint at [client.proxies.sx/account](https://client.proxies.sx/account))
 - Stripe account (test mode is fine for development)
 - Any SMTP provider for production email, or skip it — dev mode logs magic links to the console
 
@@ -248,7 +282,7 @@ A: Starting simple. x402/USDC payment support ships in a future release for AI-a
 A: You need a Proxies.sx reseller API key to mint `pak_` sub-keys. Sign up at [client.proxies.sx](https://client.proxies.sx), upgrade to reseller access (email us), then mint an API key.
 
 **Q: What's my cost structure?**
-A: You pay Proxies.sx $4/GB (scaling down to $2.40/GB at 250+ GB monthly volume). You set your retail price. Typical markups are 2–5× on mobile proxies. Stripe takes 2.9% + 30¢ per transaction on top.
+A: You pay Proxies.sx wholesale (current rates + volume tiers in your [client.proxies.sx](https://client.proxies.sx) dashboard). You set your retail price. Typical markups on resold mobile proxies are 2–5×. Stripe takes 2.9% + 30¢ per transaction on top.
 
 **Q: Can I fork and re-brand without attribution?**
 A: Yes — MIT license. Do whatever you want. No attribution required.
