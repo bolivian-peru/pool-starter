@@ -196,6 +196,30 @@ Proxies.sx API
 
 **Key trust boundary:** the reseller API key lives only on the server. The browser talks to the app's own `/api/pool/*` routes, which proxy to Proxies.sx.
 
+### Time-bounded credits (optional)
+
+If your retail product is "10 GB, use within 60 days", set `expiresAt` when minting in the Stripe webhook handler:
+
+```ts
+// src/app/api/stripe/webhook/route.ts — inside handleCheckoutCompleted
+const key = await proxies.poolKeys.create({
+  label: `customer:${customerId}`,
+  trafficCapGB: gbPurchased,
+  expiresAt: new Date(Date.now() + 60 * 86_400_000).toISOString(),
+});
+```
+
+On top-up (subsequent purchases by the same customer), bump `trafficCapGB` AND push `expiresAt` forward in the same `update()` call:
+
+```ts
+await proxies.poolKeys.update(customer.pakKeyId, {
+  trafficCapGB: customer.capGB + gbPurchased,
+  expiresAt: new Date(Date.now() + 60 * 86_400_000).toISOString(),
+});
+```
+
+The platform rejects expired keys at the gateway immediately, and the dashboard's `<PoolPortal />` renders an amber banner at < 7 days remaining and a red one once expired (no extra UI work — just include `expiresAt` and `isExpired` in your `/me` response).
+
 ---
 
 ## Security checklist

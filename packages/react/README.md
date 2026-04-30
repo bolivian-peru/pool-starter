@@ -208,9 +208,41 @@ const proxies = new ProxiesClient({
 const key = await proxies.poolKeys.create({
   label: `customer:${session.customer}`,
   trafficCapGB: Number(session.metadata?.gb),
+  // Optional: 60-day expiry. Top-ups extend it via poolKeys.update().
+  expiresAt: new Date(Date.now() + 60 * 86_400_000).toISOString(),
 });
 await db.customers.update(customerId, { pakKeyId: key.id });
 ```
+
+### Time-bounded credits in the dashboard (v0.2.0+)
+
+If you mint keys with `expiresAt`, surface it in your `/api/pool/me` response so `<PoolPortal />` can render the countdown banner automatically:
+
+```ts
+// In your /me handler, return the key's expiresAt + isExpired
+return NextResponse.json({
+  proxyUsername: process.env.PROXIES_SX_USERNAME!,
+  pakKey: key.key,
+  pakKeyId: key.id,
+  usage: {
+    usedMB: key.trafficUsedMB,
+    usedGB: (key.trafficUsedMB / 1024),
+    capGB: key.trafficCapGB,
+    enabled: key.enabled,
+    lastUsedAt: key.lastUsedAt,
+    expiresAt: key.expiresAt,    // ISO string or null
+    isExpired: key.isExpired,    // server-computed
+  },
+});
+```
+
+`<PoolPortal />` will then render:
+
+- **> 7 days remaining** → small dim line "Expires Aug 30, 2026 (88 days remaining)"
+- **≤ 7 days** → amber banner "Credits expire in N days. Top up to extend."
+- **Past expiry** → red banner "Credits expired. Top up to reactivate."
+
+Customers whose key has an expiry will see the countdown; those without an expiry see nothing extra.
 
 ---
 

@@ -131,24 +131,34 @@ const proxies = new ProxiesClient({
   proxyUsername: process.env.PROXIES_SX_USERNAME!,
 });
 
-const key = await proxies.poolKeys.create({ label: 'alice', trafficCapGB: 10 });
+// Optional: ship a 60-day "use it or lose it" credit
+const key = await proxies.poolKeys.create({
+  label: 'alice',
+  trafficCapGB: 10,
+  expiresAt: new Date(Date.now() + 60 * 86_400_000).toISOString(),
+});
 const url = proxies.buildProxyUrl(key.key, { country: 'us', rotation: 'sticky' });
 ```
 
-Details: [SDK README](./packages/sdk/README.md).
+Details: [SDK README](./packages/sdk/README.md). Time-bounded credits via `expiresAt` are documented in [SKILL.md](./SKILL.md#time-bounded-credits-with-expiresat-v020).
 
 ### Not on JavaScript? You can still integrate
 
 The SDK is a thin wrapper around a public REST API. **Any language with an HTTP client works** — PHP, Python, Ruby, Go, Rust, Elixir, even bash + curl.
 
 ```bash
-# Mint a pak_ key for a customer
+# Mint a pak_ key for a customer (with optional 60-day expiry)
 curl -X POST https://api.proxies.sx/v1/reseller/pool-keys \
   -H "X-API-Key: psx_YOUR_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"label":"customer:alice","trafficCapGB":10}'
+  -d '{
+    "label": "customer:alice",
+    "trafficCapGB": 10,
+    "expiresAt": "2026-08-30T00:00:00Z"
+  }'
 
-# → { "id": "...", "key": "pak_...", "trafficCapGB": 10, ... }
+# → { "id": "...", "key": "pak_...", "trafficCapGB": 10,
+#     "expiresAt": "2026-08-30T00:00:00.000Z", "isExpired": false, ... }
 ```
 
 The proxy URL is just plain HTTP Basic auth — works with any HTTP/SOCKS5 client in any language:

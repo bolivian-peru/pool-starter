@@ -110,7 +110,16 @@ npm publish --access public
 1. `buildProxyUrl()` output MUST be URL-encoded — username/password may contain `@`/`:` in the user's `sid` token.
 2. `pak_` keys regenerated via `regenerate()` invalidate the old value **immediately** — the old pak_ stops working mid-session.
 3. `trafficCapGB: null` means "unlimited within reseller's own pool." `0` would mean "blocked." Never confuse them.
-4. The SDK never caches responses. Callers who need caching layer it themselves (React Query, SWR, etc.).
+4. `expiresAt: null` means "never expires." Setting a Date or ISO string in the past is rejected by the platform — use `enabled: false` to disable a key, not a past date.
+5. Expired keys are rejected by the gateway **immediately** (inline check on every auth). The platform's nightly cron at 03:30 UTC just flips `enabled = false` for tidiness; revocation does not depend on it.
+6. The SDK never caches responses. Callers who need caching layer it themselves (React Query, SWR, etc.).
+
+## Common agent tasks (continued)
+
+### Add a new field to `PoolAccessKey`
+1. Update the platform schema (`gb-system-api/src/reseller/schemas/pool-access-key.schema.ts`) and serializer.
+2. Mirror the field in `packages/sdk/src/types.ts` (`PoolAccessKey` interface). Add to `CreatePoolAccessKeyInput` / `UpdatePoolAccessKeyInput` if writable.
+3. Bump SDK + React minor versions, document in both READMEs and `SKILL.md`, regenerate the React `MeResponse.usage` shape if exposed to the dashboard.
 
 ## License
 

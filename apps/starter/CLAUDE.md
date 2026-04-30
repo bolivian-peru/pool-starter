@@ -58,6 +58,22 @@ const single = await queryOne<{ id: number }>('SELECT id FROM users WHERE email 
 ### Add a new Stripe event handler
 Extend `handleCheckoutCompleted` in `src/app/api/stripe/webhook/route.ts`, or branch on `event.type` in the main handler. Idempotency is enforced by the `webhook_events` table (a unique `stripe_event_id`). If your handler throws, the row is deleted so Stripe retries will re-run it.
 
+### Add an expiry to minted keys (time-bounded credits)
+The platform supports `expiresAt` on `pak_` keys (SDK ≥ 0.2.0). To ship "10 GB, use within 60 days":
+
+1. In `handleCheckoutCompleted`, pass `expiresAt` when minting:
+   ```ts
+   const key = await proxies.poolKeys.create({
+     label: `customer:${customerId}`,
+     trafficCapGB: gbPurchased,
+     expiresAt: new Date(Date.now() + 60 * 86_400_000).toISOString(),
+   });
+   ```
+2. On subsequent top-ups, bump `trafficCapGB` AND push `expiresAt` forward in the same `update()` call.
+3. Surface it in the `/api/pool/me` response — `<PoolPortal />` will render the countdown banner automatically.
+
+The gateway rejects expired keys inline (no waiting for a cron). The platform's nightly cron at 03:30 UTC just flips `enabled = false` for tidy admin queries; do NOT rely on it for revocation.
+
 ### Switch from the dev console-logger to real email
 Set `EMAIL_SERVER_HOST`, `EMAIL_SERVER_PORT`, `EMAIL_SERVER_USER`, `EMAIL_SERVER_PASSWORD`, `EMAIL_FROM` in `.env`. NextAuth picks them up automatically (see `src/lib/auth.ts` — the presence of `EMAIL_SERVER_HOST` + `EMAIL_FROM` flips SMTP on).
 
