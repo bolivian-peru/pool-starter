@@ -371,18 +371,42 @@ Use when the user's backend is **not JavaScript**. The SDK is a thin wrapper aro
 
 | Method | Path | Purpose |
 |---|---|---|
-| `POST` | `/v1/reseller/pool-keys` | Mint a `pak_` key. Accepts optional `expiresAt` (ISO datetime) and `Idempotency-Key` header |
+| `POST` | `/v1/reseller/pool-keys` | Mint a `pak_` key. Accepts optional `expiresAt` (ISO datetime) and `Idempotency-Key` header. **Sensitive — see Fresh-Auth below.** |
 | `GET` | `/v1/reseller/pool-keys` | List keys + usage (returns `expiresAt`, server-computed `isExpired`) |
 | `GET` | `/v1/reseller/pool-keys/{keyId}` | Fetch a single key by id (v0.3.0+) |
 | `PATCH` | `/v1/reseller/pool-keys/{keyId}` | Update `label` / `enabled` / `trafficCapGB` / `expiresAt` |
 | `POST` | `/v1/reseller/pool-keys/{keyId}/topup` | Atomic cap-and/or-expiry extension (v0.3.0+). Body: `{addTrafficGB?, extendDays?}`. Accepts `Idempotency-Key` |
-| `POST` | `/v1/reseller/pool-keys/{keyId}/regenerate` | Rotate secret (old pak_ stops working immediately). Returns full record from v0.3.0 |
+| `POST` | `/v1/reseller/pool-keys/{keyId}/regenerate` | Rotate secret (old pak_ stops working immediately). Returns full record from v0.3.0. **Sensitive.** |
+| `POST` | `/v1/reseller/pool-keys/{keyId}/reveal` | Audit-logged unmask (returns full pak_ + records `reveal` event). Use this in customer-facing UIs instead of displaying the key from `list`. |
 | `DELETE` | `/v1/reseller/pool-keys/{keyId}` | Delete permanently |
+| `GET` | `/v1/reseller/pool-keys/audit` | 90-day forensic log across all keys. Filter via `?action=...`, paginate via `?before=<ISO>&limit=N` |
+| `GET` | `/v1/reseller/pool-keys/{keyId}/audit` | 90-day forensic log scoped to one key |
 
-**Two universal headers (v0.3.0+):**
+**Three universal headers:**
 
 - `Idempotency-Key: <8-128 char [A-Za-z0-9_-]>` on `POST`/`PATCH` — dedupes retries within 24h. Pass any unique-per-domain ID (UUIDv4, payment_intent_id, invoice_id). Same key in 24h returns the cached response instead of re-executing.
 - `X-Request-ID` is set on every response by the platform. Echo it in your logs. Paste it in support tickets — that's how we look up your request server-side without back-and-forth.
+- `X-Confirm-Password: <current_password>` — only required on **sensitive ops** (mint, regenerate) when the calling JWT was issued > 5 min ago. API-key callers bypass this entirely. See [Fresh-Auth Guard](#fresh-auth-guard) below.
+
+### Fresh-Auth Guard
+
+Sensitive ops (`POST /pool-keys` mint, `POST /:keyId/regenerate`) require recent authentication so a stolen JWT cookie can't be used to silently mint or rotate keys. Pass conditions in order:
+
+1. **API-key auth** — `psx_` callers always pass. Server-side automation, compensated by per-key rate limit + audit log.
+2. **Fresh JWT** — token's `iat` < 5 min old. Just-signed-in users get through.
+3. **Step-up password** — send `X-Confirm-Password: <current_password>`. Backend bcrypt-checks against the user's account password.
+
+Failure response:
+```json
+{ "statusCode": 401, "code": "FRESH_AUTH_REQUIRED", "freshWindowMinutes": 5 }
+```
+On wrong confirm password: `{ "code": "FRESH_AUTH_INVALID_PASSWORD" }`.
+
+UI pattern: catch `FRESH_AUTH_REQUIRED`, prompt the user for their current password, retry with the header set. The Proxies.sx customer portal does this automatically. See `customer-proxies-sx-main/src/pages/PoolKeys.tsx` for a reference implementation.
+
+### Auto-Suspend on Cap Exceeded
+
+When traffic crosses `trafficCapGB`, the platform flips `enabled = false` automatically and writes an `auto_suspended_cap_exceeded` audit event. Your reseller must inspect and explicitly top up + re-enable. Don't paper over this with a webhook auto-recreate — the suspend is intentional, to limit blast radius if the key was compromised.
 
 Base URL: `https://api.proxies.sx/v1`. OpenAPI: <https://api.proxies.sx/docs/api-json>. Swagger UI: <https://api.proxies.sx/docs/api>.
 

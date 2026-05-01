@@ -154,6 +154,21 @@ npm publish --access public
 2. Mirror the field in `packages/sdk/src/types.ts` (`PoolAccessKey` interface). Add to `CreatePoolAccessKeyInput` / `UpdatePoolAccessKeyInput` if writable.
 3. Bump SDK + React minor versions, document in both READMEs and `SKILL.md`, regenerate the React `MeResponse.usage` shape if exposed to the dashboard.
 
+## Server-side security model the SDK rides on (May 2026)
+
+**`psx_` API key callers bypass fresh-auth.** The platform's `FreshAuthGuard` only fires on interactive JWT sessions. SDK consumers using a server-stored `psx_` API key never see `FRESH_AUTH_REQUIRED` 401s and don't need to handle them. This is intentional — server-side automation can't re-authenticate interactively.
+
+**Compensating controls** (so the SDK isn't the weak link): per-key rate limit (passport-strategy enforced), scope checks (`customers:write` for pool-keys ops), and a 90-day audit log on every mutation that records `ip`, `userAgent`, `requestId`, and `authMethod: 'apiKey'`.
+
+**Auto-suspend on cap**: when a `pak_`'s `trafficUsedMB / 1024 >= trafficCapGB`, the platform flips `enabled = false` automatically and records `auto_suspended_cap_exceeded`. The SDK's `topUp()` extends the cap but does NOT auto re-enable — callers must explicitly `update(id, { enabled: true })` to bring a suspended key back online. This is by design: a leaked key that auto-recovered would defeat the suspend.
+
+**New endpoints not yet in SDK** (good first-issue):
+- `POST /pool-keys/:id/reveal` — audit-logged unmask. Returns same shape as `get()`. Add as `client.poolKeys.reveal(id)`.
+- `GET /pool-keys/audit?action=&before=&limit=` — forensic log across all keys. Add as `client.poolKeys.audit({ action?, before?, limit? })`.
+- `GET /pool-keys/:id/audit?before=&limit=` — same scoped to one key. Add as `client.poolKeys.auditForKey(id, { before?, limit? })`.
+
+Adding these is a 0.5.0 minor bump. Reference: see `customer-proxies-sx-main/src/lib/api.ts` `poolKeysApi` for the response shape and `customer-proxies-sx-main/src/pages/PoolKeys.tsx` for end-to-end UX.
+
 ## License
 
 MIT for the SDK. Apache 2.0 for the Next.js starter template (when it ships). The SDK's permissive license is intentional: we want *everyone* to build on top.
