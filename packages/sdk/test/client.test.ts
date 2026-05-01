@@ -348,4 +348,45 @@ describe('ProxiesClient', () => {
     expect(url).toContain('/reseller/pool-keys/65fabc');
     expect((init as RequestInit).method).toBeUndefined(); // GET (default)
   });
+
+  // ────────────────────────────────────────────────────────────────────
+  //  0.3.1: pool.getStock() shape lock + runtime validator
+  //  Coronium audit 2026-05-01 — type was unrelated to the live shape.
+  // ────────────────────────────────────────────────────────────────────
+
+  it('pool.getStock() returns the live { pools, totals, generatedAt } shape', async () => {
+    const live = {
+      pools: {
+        mbl: { us: 73, de: 19, fr: 18, es: 25, gb: 22 },
+        peer: { us: 0, ch: 1 },
+      },
+      totals: { mbl: 157, peer: 1, all: 158 },
+      generatedAt: '2026-05-01T09:34:32.449Z',
+    };
+    const fetchMock = mockFetch(200, live);
+    const client = new ProxiesClient({
+      apiKey: 'psx_x',
+      retry: false,
+      fetch: fetchMock as unknown as typeof fetch,
+    });
+    const stock = await client.pool.getStock();
+    expect(stock.pools.mbl.us).toBe(73);
+    expect(stock.pools.peer.ch).toBe(1);
+    expect(stock.totals.all).toBe(158);
+    expect(stock.generatedAt).toBe('2026-05-01T09:34:32.449Z');
+  });
+
+  it('pool.getStock() throws on broken upstream shape', async () => {
+    // The pre-0.3.1 (incorrect) declared shape — should now be rejected.
+    const fetchMock = mockFetch(200, {
+      updatedAt: '2026-01-01T00:00:00Z',
+      countries: [],
+    });
+    const client = new ProxiesClient({
+      apiKey: 'psx_x',
+      retry: false,
+      fetch: fetchMock as unknown as typeof fetch,
+    });
+    await expect(client.pool.getStock()).rejects.toThrow(/PoolStock response shape unexpected/);
+  });
 });

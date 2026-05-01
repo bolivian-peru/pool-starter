@@ -10,7 +10,10 @@
  *
  * For the live list, call {@link ProxiesClient.pool.getStock}.
  */
-export type KnownCountry = 'us' | 'de' | 'pl' | 'fr' | 'es' | 'gb';
+export type KnownCountry =
+  | 'us' | 'de' | 'pl' | 'fr' | 'es' | 'gb'
+  // Additional codes seen in live `getStock()` snapshots (peer pool):
+  | 'ch' | 'pa' | 'am';
 
 /**
  * ISO 2-letter country code. Lowercase. Validated server-side against the
@@ -186,14 +189,47 @@ export interface BuildProxyUrlOpts {
   host?: string;
 }
 
-/** Pool stock response (unauthenticated public endpoint). */
+/**
+ * Response from `GET /v1/gateway/pool/stock` (public-readable, optional auth).
+ *
+ * Shape verified against production 2026‑05‑01:
+ *
+ * ```json
+ * {
+ *   "pools": {
+ *     "mbl":  { "us": 73, "de": 19, "fr": 18, "es": 25, "gb": 22, ... },
+ *     "peer": { "us": 0,  "ch": 1, ... }
+ *   },
+ *   "totals":     { "mbl": 159, "peer": 1, "all": 160 },
+ *   "generatedAt": "2026-05-01T09:34:32.449Z"
+ * }
+ * ```
+ *
+ * **Country codes are dynamic.** Don't switch on a literal union — new
+ * countries appear in this response without an SDK release. The SDK
+ * runtime-validates that the envelope keys exist (`pools`, `totals`,
+ * `generatedAt`) and throws a typed `ProxiesError` if upstream changes
+ * the shape, but the per-country values are pass-through.
+ *
+ * @since 0.3.1 — earlier SDK versions declared `{ updatedAt, countries[] }`
+ *   which never matched the running server. Fixed in 0.3.1 to mirror the
+ *   live response.
+ */
 export interface PoolStock {
-  updatedAt: string;
-  countries: Array<{
-    country: Country;
-    mbl: { online: number; total: number };
-    peer: { online: number; total: number };
-  }>;
+  /** Per-pool, per-country online endpoint count. Country code → online. */
+  pools: {
+    mbl: Record<string, number>;
+    peer: Record<string, number>;
+  };
+  /** Aggregate totals across all countries. */
+  totals: {
+    mbl: number;
+    peer: number;
+    /** Sum of `mbl` + `peer`. */
+    all: number;
+  };
+  /** ISO 8601 timestamp when the snapshot was taken (cached server-side ~30s). */
+  generatedAt: string;
 }
 
 /** Incident notice (unauthenticated public endpoint). */

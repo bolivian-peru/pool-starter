@@ -5,6 +5,47 @@ All notable changes to this package are documented here. The format is based on
 semver from 0.3.0 onwards (the public surface is everything exported from
 `dist/index.d.ts`).
 
+## 0.3.1 — PoolStock shape fix (P0)
+
+Surfaced by Coronium's live integration audit (2026‑05‑01). The
+declared `PoolStock` type in `dist/index.d.ts` was unrelated to what
+the running production server returns — every consumer iterating
+`stock.countries` got `undefined`. Fixed.
+
+### Fixed
+
+- **`PoolStock` now matches the live `GET /v1/gateway/pool/stock` shape**:
+  ```ts
+  {
+    pools: { mbl: Record<string,number>, peer: Record<string,number> },
+    totals: { mbl: number, peer: number, all: number },
+    generatedAt: string,
+  }
+  ```
+  Previous (wrong) shape was `{ updatedAt, countries: [{ country, mbl, peer }] }`.
+- **Runtime validator on `pool.getStock()`** — if the server response
+  doesn't carry `pools`, `totals`, and `generatedAt`, the SDK throws
+  a typed `ProxiesError` instead of returning bogus data.
+
+### Added
+
+- `KnownCountry` widened to include `'ch' | 'pa' | 'am'` (seen in live
+  peer-pool snapshots). `Country` is unchanged (`KnownCountry | (string & {})`)
+  so future country additions still work without an SDK bump.
+- Snapshot tests locking the new shape against a real production
+  response, plus a regression test that asserts the old shape is
+  rejected.
+
+### Migration
+
+If you were already reading `stock.pools` and `stock.totals` directly
+(via `as any`), you can now drop the cast — the types are correct.
+If you were reading `stock.countries`, that path was always broken;
+move to `Object.entries(stock.pools.mbl)` for per-country mobile
+counts (or `peer` for residential).
+
+---
+
 ## 0.3.0 — Production-readiness pass
 
 Driven by paying-reseller feedback (Coronium audit, 2026‑04‑30). Removes the

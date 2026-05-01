@@ -9,7 +9,12 @@ import type {
   BuildProxyUrlOpts,
   RetryConfig,
 } from './types';
-import { ProxiesApiError, ProxiesConfigError, ProxiesTimeoutError } from './errors';
+import {
+  ProxiesError,
+  ProxiesApiError,
+  ProxiesConfigError,
+  ProxiesTimeoutError,
+} from './errors';
 import { buildProxyUrl, GATEWAY_HOST } from './url';
 
 const DEFAULT_BASE_URL = 'https://api.proxies.sx/v1';
@@ -390,9 +395,29 @@ export class PoolApi {
    * Live online-endpoint count per country. Safe to call from clients
    * (auth header is still sent but the endpoint itself is public).
    * Cached server-side for 30s.
+   *
+   * Runtime-validates the response envelope so a server-side shape
+   * change throws a typed `ProxiesError` rather than returning data
+   * the caller iterates as `undefined`.
    */
-  getStock(): Promise<PoolStock> {
-    return this.client.request<PoolStock>('/gateway/pool/stock');
+  async getStock(): Promise<PoolStock> {
+    const raw = await this.client.request<unknown>('/gateway/pool/stock');
+    if (
+      !raw ||
+      typeof raw !== 'object' ||
+      !('pools' in raw) ||
+      !('totals' in raw) ||
+      !('generatedAt' in raw) ||
+      typeof (raw as any).pools !== 'object' ||
+      typeof (raw as any).totals !== 'object'
+    ) {
+      throw new ProxiesError(
+        'PoolStock response shape unexpected — possible upstream change. ' +
+          'Got: ' +
+          JSON.stringify(raw).slice(0, 200),
+      );
+    }
+    return raw as PoolStock;
   }
 
   /** Active incidents affecting the gateway, if any. Cached 60s. */
