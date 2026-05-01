@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { stripe } from '@/lib/stripe';
 import { proxies } from '@/lib/proxies';
-import { query, queryOne } from '@/lib/db';
+import { pool, query } from '@/lib/db';
 import { tierById, config } from '@/config';
 
 // Stripe signs the raw body; never parse before verifying.
@@ -101,52 +101,68 @@ async function handleCheckoutCompleted(sess: Stripe.Checkout.Session): Promise<v
     [userId],
   );
 
-  // Add this purchase's GB to the running total, and grow the pak_ cap
-  // accordingly. If the user has no pak_ yet, mint one.
-  const customer = await queryOne<{
-    pak_key_id: string | null;
-    total_gb_purchased: string;
-  }>(
-    'SELECT pak_key_id, total_gb_purchased FROM customers WHERE user_id = $1',
-    [userId],
-  );
+  // Lock the customer row + mint/topup + write back, all inside one
+  // transaction. Without this, two near-simultaneous checkouts for the
+  // same user can BOTH read pak_key_id IS NULL, mint TWO keys with
+  // different idempotency keys, and the second UPDATE wins — orphaning
+  // the first paid-for key. (`FOR UPDATE` blocks the second webhook
+  // until the first commits.)
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
 
-  const newTotalGb = Number(customer?.total_gb_purchased ?? 0) + tier.gb;
+    const lockRes = await client.query<{
+      pak_key_id: string | null;
+      total_gb_purchased: string;
+    }>(
+      'SELECT pak_key_id, total_gb_purchased FROM customers WHERE user_id = $1 FOR UPDATE',
+      [userId],
+    );
+    const customer = lockRes.rows[0] ?? null;
 
-  if (!customer?.pak_key_id) {
-    // First purchase — mint the key with this tier's GB as the cap.
-    // Pass idempotencyKey tied to the Stripe checkout session so a retry
-    // (network blip after platform mints the key, before we get the
-    // response) returns the cached key instead of minting a second one.
-    const key = await proxies.poolKeys.create({
-      label: `customer:${userId}`,
-      trafficCapGB: newTotalGb,
-      idempotencyKey: `mint_${session.id}`,
-    });
-    await query(
-      `UPDATE customers
-         SET pak_key_id = $1,
-             total_gb_purchased = $2,
-             updated_at = NOW()
-       WHERE user_id = $3`,
-      [key.id, newTotalGb, userId],
-    );
-  } else {
-    // Top-up — raise the cap atomically via topUp(). Server-side $inc
-    // means concurrent top-ups don't clobber each other. The
-    // idempotencyKey tied to the Stripe session means a retry returns
-    // the cached response instead of double-crediting the customer.
-    await proxies.poolKeys.topUp(customer.pak_key_id, {
-      addTrafficGB: tier.gb,
-      idempotencyKey: `topup_${session.id}`,
-    });
-    await query(
-      `UPDATE customers
-         SET total_gb_purchased = $1,
-             updated_at = NOW()
-       WHERE user_id = $2`,
-      [newTotalGb, userId],
-    );
+    const newTotalGb = Number(customer?.total_gb_purchased ?? 0) + tier.gb;
+
+    if (!customer?.pak_key_id) {
+      // First purchase — mint the key with this tier's GB as the cap.
+      // idempotencyKey tied to the Stripe session id makes the SDK
+      // call retry-safe; the FOR UPDATE above prevents the OTHER race
+      // (two concurrent first-purchase checkouts for same user).
+      const key = await proxies.poolKeys.create({
+        label: `customer:${userId}`,
+        trafficCapGB: newTotalGb,
+        idempotencyKey: `mint_${sess.id}`,
+      });
+      await client.query(
+        `UPDATE customers
+           SET pak_key_id = $1,
+               total_gb_purchased = $2,
+               updated_at = NOW()
+         WHERE user_id = $3`,
+        [key.id, newTotalGb, userId],
+      );
+    } else {
+      // Top-up — atomic $inc on the platform side. The local mirror
+      // is updated inside the same txn so the row-lock prevents
+      // stale-read undercounting on concurrent top-ups.
+      await proxies.poolKeys.topUp(customer.pak_key_id, {
+        addTrafficGB: tier.gb,
+        idempotencyKey: `topup_${sess.id}`,
+      });
+      await client.query(
+        `UPDATE customers
+           SET total_gb_purchased = $1,
+               updated_at = NOW()
+         WHERE user_id = $2`,
+        [newTotalGb, userId],
+      );
+    }
+
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    client.release();
   }
 
   console.log(

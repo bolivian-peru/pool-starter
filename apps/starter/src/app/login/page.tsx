@@ -1,16 +1,33 @@
 import { redirect } from 'next/navigation';
+import { headers } from 'next/headers';
 import { auth, signIn } from '@/lib/auth';
+import { query } from '@/lib/db';
 import { config } from '@/config';
 
 interface PageProps {
   searchParams: Promise<{ verify?: string; next?: string }>;
 }
 
+/**
+ * Allow-list a `next` query param to same-origin paths only.
+ * Blocks open-redirect phishing — `?next=https://evil.example` and
+ * `?next=//evil.example` (protocol-relative) both fail and fall back
+ * to /dashboard. Accepts only paths starting with a single `/`.
+ */
+function safeNext(raw: string | undefined): string {
+  if (typeof raw !== 'string') return '/dashboard';
+  if (!raw.startsWith('/')) return '/dashboard';
+  if (raw.startsWith('//')) return '/dashboard';   // protocol-relative
+  if (raw.startsWith('/\\')) return '/dashboard';  // backslash variant some browsers normalize
+  return raw;
+}
+
 export default async function LoginPage({ searchParams }: PageProps) {
   const session = await auth();
   const params = await searchParams;
+  const next = safeNext(params.next);
   if (session) {
-    redirect(params.next ?? '/dashboard');
+    redirect(next);
   }
 
   const verified = params.verify === '1';
@@ -32,11 +49,43 @@ export default async function LoginPage({ searchParams }: PageProps) {
             action={async (formData) => {
               'use server';
               const raw = formData.get('email');
-              const email = typeof raw === 'string' ? raw.trim() : '';
+              const email = typeof raw === 'string' ? raw.trim().toLowerCase() : '';
               if (!email) return;
+
+              // Rate limit per-email + per-IP. Caps:
+              //   5 magic links per email per hour
+              //   20 per IP per hour
+              // Tunable: tighten if you see abuse, loosen if you have
+              // legitimate users hitting the wall.
+              const h = await headers();
+              const ip =
+                h.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+                h.get('x-real-ip') ||
+                'unknown';
+
+              const [byEmail] = await query<{ count: string }>(
+                "SELECT COUNT(*)::text AS count FROM magic_link_sends WHERE email_lower = $1 AND sent_at > NOW() - INTERVAL '1 hour'",
+                [email],
+              );
+              const [byIp] = await query<{ count: string }>(
+                "SELECT COUNT(*)::text AS count FROM magic_link_sends WHERE client_ip = $1 AND sent_at > NOW() - INTERVAL '1 hour'",
+                [ip],
+              );
+              if (Number(byEmail?.count ?? 0) >= 5 || Number(byIp?.count ?? 0) >= 20) {
+                // Silent fall-through to verify=1 — no error message,
+                // matches the behavior on a successful send so attackers
+                // can't enumerate which limit they hit.
+                redirect('/login?verify=1');
+              }
+
+              await query(
+                'INSERT INTO magic_link_sends (email_lower, client_ip) VALUES ($1, $2)',
+                [email, ip],
+              );
+
               await signIn('nodemailer', {
                 email,
-                redirectTo: params.next ?? '/dashboard',
+                redirectTo: next,
               });
             }}
             className="space-y-3"

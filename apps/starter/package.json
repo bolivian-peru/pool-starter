@@ -9,8 +9,7 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "db:migrate": "node db/migrate.mjs",
-    "setup": "node scripts/setup.mjs"
+    "db:migrate": "node db/migrate.mjs"
   },
   "dependencies": {
     "@auth/pg-adapter": "1.7.4",

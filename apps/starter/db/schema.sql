@@ -42,10 +42,32 @@ CREATE TABLE IF NOT EXISTS sessions (
 CREATE TABLE IF NOT EXISTS users (
   id SERIAL PRIMARY KEY,
   name TEXT,
-  email TEXT UNIQUE,
+  email TEXT,
   "emailVerified" TIMESTAMPTZ,
   image TEXT
 );
+
+-- Case-insensitive uniqueness on email. Without this, Alice@x.com and
+-- alice@x.com create two rows. The login form server action lowercases
+-- before signIn, but defense-in-depth at the DB matters too.
+CREATE UNIQUE INDEX IF NOT EXISTS users_email_lower_idx ON users (LOWER(email));
+
+-- -----------------------------------------------------------------------------
+-- Rate limiting: per-IP / per-email magic-link send throttle
+-- -----------------------------------------------------------------------------
+-- One row per send attempt. Reads use a SUM over a rolling window and reject
+-- when over the cap (5 sends/hour per email, 20/hour per IP). Old rows are
+-- pruned by the same nightly cleanup that handles webhook_events.
+CREATE TABLE IF NOT EXISTS magic_link_sends (
+  id SERIAL PRIMARY KEY,
+  email_lower TEXT NOT NULL,
+  client_ip TEXT NOT NULL,
+  sent_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS magic_link_sends_email_recent_idx
+  ON magic_link_sends (email_lower, sent_at DESC);
+CREATE INDEX IF NOT EXISTS magic_link_sends_ip_recent_idx
+  ON magic_link_sends (client_ip, sent_at DESC);
 
 -- -----------------------------------------------------------------------------
 -- App tables
