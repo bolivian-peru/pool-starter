@@ -43,7 +43,22 @@ export type Country = KnownCountry | (string & {});
  *   *different* endpoint than last time. Useful when the previous IP
  *   got blocked. Burns through endpoints faster — use sparingly.
  */
-export type RotationMode = 'none' | 'auto10' | 'auto30' | 'sticky' | 'hard';
+/**
+ * Gateway rotation policies. Aligned with the gateway's
+ * `ROTATION_INTERVALS` map. `'none'` is the SDK convenience value for
+ * "no `-rot-` token" — the gateway then falls back to a 5-min synth
+ * session (or full TTL when `-sid-` is explicit).
+ */
+export type RotationMode =
+  | 'none'      // no -rot- token; gateway uses default
+  | 'auto5'     // new IP every 5 min
+  | 'auto10'    // new IP every 10 min (default)
+  | 'auto20'    // new IP every 20 min
+  | 'auto30'    // new IP every 30 min
+  | 'auto60'    // new IP every 60 min
+  | 'ondemand'  // new IP only on new connection
+  | 'sticky'    // same IP for session duration
+  | 'hard';     // force modem reconnect (per-connection IP)
 
 /** Pool the customer's traffic will route through. `mbl` = ProxySmart mobile modems. `peer` = residential Android peers. */
 export type Pool = 'mbl' | 'peer';
@@ -120,6 +135,82 @@ export interface CreatePoolAccessKeyInput {
    * @since 0.3.0
    */
   idempotencyKey?: string;
+}
+
+/**
+ * Action recorded in the pool-access-key audit log.
+ * Mutations + security-relevant gateway events. List polling is NOT
+ * audited (would dominate the collection without forensic value).
+ *
+ * @since 0.5.0
+ */
+export type PakAuditAction =
+  | 'create'
+  | 'update'
+  | 'topup'
+  | 'regenerate'
+  | 'reveal'
+  | 'delete'
+  | 'gateway_auth_success'
+  | 'gateway_auth_failure'
+  | 'auto_suspended_cap_exceeded'
+  | 'auto_suspended_expired';
+
+/**
+ * Single audit event on a `pak_` key. Server retains for 90 days
+ * (TTL index) — archive to your own SIEM if you need longer retention.
+ *
+ * @since 0.5.0
+ */
+export interface PoolAccessKeyAuditEvent {
+  /** Unique event id. */
+  id: string;
+  /** Key id this event relates to. Omitted on the per-key endpoint (redundant). */
+  pakId?: string;
+  /** What happened. See {@link PakAuditAction}. */
+  action: PakAuditAction;
+  /** Source IP that triggered the event. `null` for system / cron actions. */
+  ip: string | null;
+  /** Caller user-agent (for HTTP-driven actions). */
+  userAgent: string | null;
+  /** `X-Request-ID` value at the time of the event — cross-correlate with gateway logs. */
+  requestId: string | null;
+  /**
+   * Auth method that produced the event:
+   *   - `'jwt'` — interactive session (admin or reseller portal)
+   *   - `'apiKey'` — server-side automation (your `psx_` SDK calls)
+   *   - `'gateway'` — byte-flow event from the gateway
+   *   - `'system'` — cron-driven (auto-suspend, expiry sweep)
+   */
+  authMethod: 'jwt' | 'apiKey' | 'gateway' | 'system' | null;
+  /**
+   * Action-specific context. Examples:
+   *   - `create`: `{ label, trafficCapGB, expiresAt }`
+   *   - `update`: `{ fields: string[], values: object }`
+   *   - `topup`: `{ addTrafficGB, extendDays, newTrafficCapGB, newExpiresAt }`
+   *   - `regenerate`: `{ newKeyPrefix }` (NOT the full new key)
+   *   - `reveal`: `{ keyPrefix, label }`
+   *   - `gateway_auth_failure`: `{ reason, usedGB?, capGB? }`
+   *   - `auto_suspended_cap_exceeded`: `{ usedGB, capGB, label }`
+   */
+  metadata: Record<string, any>;
+  /** ISO 8601 timestamp. */
+  createdAt: string;
+}
+
+/**
+ * Filters and pagination for {@link PoolKeysApi.audit} /
+ * {@link PoolKeysApi.auditForKey}.
+ *
+ * @since 0.5.0
+ */
+export interface AuditQueryOpts {
+  /** Filter by action. Cross-key endpoint only — per-key returns all actions. */
+  action?: PakAuditAction;
+  /** Page back: return events strictly older than this ISO datetime. */
+  before?: string | Date;
+  /** Cap: 1–500 (cross-key) or 1–200 (per-key). Server clamps. */
+  limit?: number;
 }
 
 /** Input to {@link PoolKeysApi.update}. */

@@ -78,11 +78,39 @@ The platform supports `expiresAt` on `pak_` keys (SDK ≥ 0.2.0). To ship "10 GB
      extendDays: 60,               // expiresAt = max(now, current) + 60d
      idempotencyKey: `topup_${session.id}`,
    });
+   // Platform behavior since SDK 0.5.0: if the key was auto-suspended
+   // for hitting its cap, topUp does NOT auto re-enable. For confirmed
+   // payment paths (Stripe webhook from the actual account owner),
+   // lift the suspend explicitly:
+   await proxies.poolKeys.update(customer.pak_key_id, { enabled: true });
    ```
 3. Surface `expiresAt` and `isExpired` in the `/api/pool/me` response —
    `<PoolPortal />` will render the countdown banner automatically.
 
 The gateway rejects expired keys inline (no waiting for a cron). The platform's nightly cron at 03:30 UTC just flips `enabled = false` for tidy admin queries; do NOT rely on it for revocation.
+
+### Auto-suspend on cap exceeded (SDK ≥ 0.5.0)
+
+When a customer's `pak_` hits its `trafficCapGB`, the platform atomically flips `enabled = false` and writes an `auto_suspended_cap_exceeded` audit event. **`topUp()` doesn't auto re-enable** — that's intentional, so a leaked key can't auto-recover from a cap suspend without owner review.
+
+If your auto-topup runs on a confirmed payment from the account owner (Stripe webhook in the starter), pair `topUp` + explicit `update({ enabled: true })`. The starter's `src/app/api/stripe/webhook/route.ts` already does this in `handleCheckoutCompleted`.
+
+### Audit log (SDK ≥ 0.5.0)
+
+Three new methods for forensic visibility:
+
+```ts
+// Cross-key (90d retention, server-side TTL)
+const events = await proxies.poolKeys.audit({ action: 'gateway_auth_failure', limit: 100 });
+
+// Single-key (good for "my key stopped working" support flows)
+const recent = await proxies.poolKeys.auditForKey(keyId, { limit: 50 });
+
+// Audit-logged unmask — replace any "show full pak_" UI with this
+const fresh = await proxies.poolKeys.reveal(keyId);   // records `reveal` event
+```
+
+Use `audit({ action: 'auto_suspended_cap_exceeded' })` periodically to spot customers who are hitting caps but not topping up — could be a billing issue or a leaked key.
 
 ### Idempotency, retry, and request-id (SDK ≥ 0.3.0)
 

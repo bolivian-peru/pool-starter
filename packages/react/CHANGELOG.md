@@ -2,6 +2,33 @@
 
 All notable changes to this package are documented here.
 
+## 0.5.0 — SDK 0.5.0 bump + server.ts get() fix
+
+Tracks SDK 0.5.0 (Pool Access Key security hardening) — bump dependency
+to `^0.5.0` so apps consuming this package can use the new
+`reveal` / `audit` / `auditForKey` methods on `ProxiesClient` directly.
+
+### Changed
+
+- **Dependency** `@proxies-sx/pool-sdk: ^0.4.0 → ^0.5.0`. Existing
+  components don't use the new methods themselves; the bump unblocks
+  consumers who want to.
+
+### Fixed
+
+- **`createPoolApiHandlers().handleMe`** now calls `proxies.poolKeys.get(keyId)`
+  instead of the legacy `list().find()` workaround. The previous comment
+  claimed the SDK had no single-key GET — stale since 0.3.0. Behavior
+  preserved (404 returns `{ error: 'key_missing', status: 404 }`).
+
+### NOT changed (deliberate)
+
+- **`<PoolPortal>` still serves the full `pak_` value via `MeResponse.pakKey`.**
+  This is the customer's own credential — they need it to use the proxy.
+  Different from the reseller-management pattern (mask + reveal-on-demand
+  for many keys). If you're building a reseller dashboard on top of this
+  SDK, use `client.poolKeys.reveal()` instead of displaying `key` from `list()`.
+
 ## 0.4.1 — Pool docs panel + live stock grid
 
 Driven by Coronium's customer-page redesign request: drop in a

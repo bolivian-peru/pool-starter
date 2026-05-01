@@ -93,7 +93,42 @@ on top — it causes thundering herd. To disable, pass `retry: false`.
 | `update(keyId, { label?, enabled?, trafficCapGB?, expiresAt? })` | `PoolAccessKey` | Change any field |
 | `topUp(keyId, { addTrafficGB?, extendDays?, idempotencyKey? })` | `PoolAccessKey` | Atomically extend cap and/or expiry — use this for top-up flows |
 | `regenerate(keyId, { idempotencyKey? }?)` | `PoolAccessKey` | Rotate the secret value (invalidates old). Returns full record from 0.3.0+ |
+| `reveal(keyId)` (v0.5.0+) | `PoolAccessKey` | Audit-logged unmask. Records a `reveal` event server-side. Use in customer-facing dashboards instead of displaying `key` from `list()` |
+| `audit({ action?, before?, limit? }?)` (v0.5.0+) | `PoolAccessKeyAuditEvent[]` | Forensic log across ALL of your keys (90-day TTL). Filter by action, paginate via `before` |
+| `auditForKey(keyId, { before?, limit? }?)` (v0.5.0+) | `PoolAccessKeyAuditEvent[]` | Forensic log for a single key |
 | `delete(keyId)` | `void` | Permanently delete |
+
+#### Auto-suspend on cap exceeded (server-side, v0.5.0+)
+
+When a key's `trafficUsedMB / 1024 ≥ trafficCapGB`, the platform atomically flips `enabled = false` and writes an `auto_suspended_cap_exceeded` audit event. **`topUp()` does NOT auto re-enable.** This is intentional — caps financial blast radius if a key leaks. For trusted top-up flows (e.g., a confirmed Stripe payment from the actual account owner), pair `topUp` + explicit `update`:
+
+```ts
+await proxies.poolKeys.topUp(keyId, { addTrafficGB: 10, idempotencyKey: invoiceId });
+await proxies.poolKeys.update(keyId, { enabled: true });   // ← lift the suspend
+```
+
+#### Audit log usage (v0.5.0+)
+
+```ts
+// Forensic log for a single key — useful for support tooling
+const events = await proxies.poolKeys.auditForKey(keyId, { limit: 50 });
+const lastFailure = events.find(e => e.action === 'gateway_auth_failure');
+if (lastFailure) console.log('Last reject:', lastFailure.metadata.reason);
+
+// Cross-key — find every auto-suspend (cap reviews)
+const suspends = await proxies.poolKeys.audit({
+  action: 'auto_suspended_cap_exceeded',
+  limit: 100,
+});
+
+// Audit-logged reveal — replace any "show full pak_" UI with this
+const fresh = await proxies.poolKeys.reveal(keyId);
+showSecretBriefly(fresh.key);   // and audit log records who/when/where
+```
+
+#### `psx_` API-key callers bypass FreshAuthGuard
+
+The platform requires recent auth (JWT < 5 min OR `X-Confirm-Password`) for `POST /pool-keys` and `POST /:keyId/regenerate` from interactive sessions. **Server-side `psx_` callers (this SDK) bypass it entirely** — no code change needed. Compensating controls: per-key rate limit + audit log.
 
 ### `proxies.sessions` (v0.4.0+)
 

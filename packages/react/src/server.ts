@@ -127,19 +127,22 @@ export function createPoolApiHandlers(options: PoolApiHandlerOptions): RouteHand
 
     let key;
     try {
-      // The SDK doesn't expose a single-key GET; list + filter is the supported
-      // path. For hosts with many keys this can be cached or replaced with a
-      // direct GET once the API adds one.
-      const all = await proxies.poolKeys.list();
-      key = all.find((k) => k.id === keyId);
+      // Single-key fetch via SDK 0.3.0+ (avoid the list+filter pattern —
+      // O(N) on the platform side and unnecessary now that `get()` exists).
+      key = await proxies.poolKeys.get(keyId);
     } catch (err) {
       const apiErr = err as ProxiesApiError;
+      // 404 = key was deleted on the platform but our local mapping still
+      // points at it. Surface as `key_missing` so the dashboard can ask
+      // the user to repurchase, instead of bubbling a 502.
+      if (apiErr.status === 404) {
+        return json({ error: 'key_missing' }, { status: 404 });
+      }
       return json(
         { error: 'upstream_error', status: apiErr.status ?? 500 },
         { status: apiErr.status && apiErr.status < 600 ? apiErr.status : 502 },
       );
     }
-    if (!key) return json({ error: 'key_missing' }, { status: 404 });
 
     const response: MeResponse = {
       proxyUsername: proxies.proxyUsername!,

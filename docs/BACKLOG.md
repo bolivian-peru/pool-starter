@@ -6,6 +6,18 @@ acceptance criteria.
 
 ---
 
+## Recently shipped
+
+- **0.5.0 — Pool Access Key security hardening** (2026‑05‑01). Three
+  new SDK methods (`reveal`, `audit`, `auditForKey`) tracking the
+  platform's pak_ security update. Auto-suspend on cap exceeded means
+  consumer auto-topup flows must explicit `update({ enabled: true })`
+  after `topUp` — starter app webhook updated. `RotationMode` widened
+  to include `auto5 / auto20 / auto60 / ondemand` (was missing,
+  caused typecheck errors). See SDK CHANGELOG.
+
+---
+
 ## 0.5.x — In design
 
 ### Stale explicit-sid session auto-close

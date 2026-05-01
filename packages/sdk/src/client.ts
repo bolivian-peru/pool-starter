@@ -4,6 +4,8 @@ import type {
   UpdatePoolAccessKeyInput,
   TopUpPoolAccessKeyInput,
   PoolAccessKey,
+  PoolAccessKeyAuditEvent,
+  AuditQueryOpts,
   PoolStock,
   Incident,
   BuildProxyUrlOpts,
@@ -389,6 +391,129 @@ export class PoolKeysApi {
     await this.client.request<{ message: string }>(
       `/reseller/pool-keys/${encodeURIComponent(keyId)}`,
       { method: 'DELETE' },
+    );
+  }
+
+  /**
+   * Audit-logged unmask. Returns the same record as {@link get}, AND
+   * records a `reveal` event in the platform audit log with the caller's
+   * IP, UA, and request id. Use this in your customer-facing dashboards
+   * instead of displaying the raw `key` field from {@link list} — gives
+   * you forensic visibility into "who exfiltrated my key" investigations
+   * even when the action is legitimate.
+   *
+   * Pattern: list returns prefix-only display (mask `pak_xxxx…xxxx`),
+   * "Reveal" button → confirm dialog → call this method → show full
+   * value once + copy-to-clipboard. Mirror of how Stripe / GitHub /
+   * AWS handle credential display.
+   *
+   * @example
+   * ```ts
+   * // In your "Reveal" handler:
+   * const fresh = await proxies.poolKeys.reveal(keyId);
+   * showSecret(fresh.key);  // briefly, with auto-hide
+   * ```
+   *
+   * @since 0.5.0
+   */
+  async reveal(keyId: string): Promise<PoolAccessKey> {
+    if (!keyId) throw new ProxiesConfigError('poolKeys.reveal: keyId is required');
+    return this.client.request<PoolAccessKey>(
+      `/reseller/pool-keys/${encodeURIComponent(keyId)}/reveal`,
+      { method: 'POST' },
+    );
+  }
+
+  /**
+   * Forensic audit log across all of your pool access keys. Returns
+   * events newest-first. Server retains for 90 days — archive to your
+   * own SIEM if you need longer retention.
+   *
+   * Use cases:
+   * - "Did anyone modify keys today?" → leave `action` unset
+   * - "Show every gateway-auth failure" → `{ action: 'gateway_auth_failure' }`
+   *   (catches credential stuffing — many failures across many IPs on
+   *   one pak signal a leaked key being attacked)
+   * - "Show every auto-suspend so we can review caps"
+   *   → `{ action: 'auto_suspended_cap_exceeded' }`
+   * - Pagination: `{ before: oldestSeenAt, limit: 100 }`
+   *
+   * @example
+   * ```ts
+   * // Last 50 state-changing events:
+   * const events = await proxies.poolKeys.audit({ limit: 50 });
+   *
+   * // Specific action filter:
+   * const suspends = await proxies.poolKeys.audit({
+   *   action: 'auto_suspended_cap_exceeded',
+   *   limit: 200,
+   * });
+   * ```
+   *
+   * @since 0.5.0
+   */
+  async audit(opts: AuditQueryOpts = {}): Promise<PoolAccessKeyAuditEvent[]> {
+    const qs = new URLSearchParams();
+    if (opts.action) qs.set('action', opts.action);
+    if (opts.before) {
+      const iso = opts.before instanceof Date ? opts.before.toISOString() : opts.before;
+      qs.set('before', iso);
+    }
+    if (opts.limit !== undefined) {
+      if (opts.limit <= 0) {
+        throw new ProxiesConfigError('poolKeys.audit: limit must be > 0');
+      }
+      qs.set('limit', String(opts.limit));
+    }
+    const tail = qs.toString();
+    return this.client.request<PoolAccessKeyAuditEvent[]>(
+      `/reseller/pool-keys/audit${tail ? '?' + tail : ''}`,
+    );
+  }
+
+  /**
+   * Forensic audit log scoped to a single pool access key.
+   * Same payload shape as {@link audit} but the `pakId` field is
+   * omitted from each event (redundant when scoped by id in the URL).
+   *
+   * Use cases:
+   * - Customer says "my key stopped working" → look at recent
+   *   `gateway_auth_failure` + `auto_suspended_*` events
+   * - Reconstruct a compromised key's lifecycle for incident review
+   *
+   * @example
+   * ```ts
+   * const events = await proxies.poolKeys.auditForKey(keyId, { limit: 50 });
+   * const lastSuspend = events.find(e =>
+   *   e.action === 'auto_suspended_cap_exceeded' ||
+   *   e.action === 'auto_suspended_expired',
+   * );
+   * if (lastSuspend) {
+   *   console.log('Suspended at', lastSuspend.createdAt, 'because', lastSuspend.metadata);
+   * }
+   * ```
+   *
+   * @since 0.5.0
+   */
+  async auditForKey(
+    keyId: string,
+    opts: Omit<AuditQueryOpts, 'action'> = {},
+  ): Promise<PoolAccessKeyAuditEvent[]> {
+    if (!keyId) throw new ProxiesConfigError('poolKeys.auditForKey: keyId is required');
+    const qs = new URLSearchParams();
+    if (opts.before) {
+      const iso = opts.before instanceof Date ? opts.before.toISOString() : opts.before;
+      qs.set('before', iso);
+    }
+    if (opts.limit !== undefined) {
+      if (opts.limit <= 0) {
+        throw new ProxiesConfigError('poolKeys.auditForKey: limit must be > 0');
+      }
+      qs.set('limit', String(opts.limit));
+    }
+    const tail = qs.toString();
+    return this.client.request<PoolAccessKeyAuditEvent[]>(
+      `/reseller/pool-keys/${encodeURIComponent(keyId)}/audit${tail ? '?' + tail : ''}`,
     );
   }
 }

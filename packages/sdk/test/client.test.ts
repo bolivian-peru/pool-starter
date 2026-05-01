@@ -350,6 +350,103 @@ describe('ProxiesClient', () => {
   });
 
   // ────────────────────────────────────────────────────────────────────
+  //  0.5.0: reveal + audit endpoints (Pool Access Key security hardening)
+  // ────────────────────────────────────────────────────────────────────
+
+  it('reveal posts to /:id/reveal and returns the full key record', async () => {
+    const fetchMock = mockFetch(200, KEY_FIXTURE);
+    const client = new ProxiesClient({
+      apiKey: 'psx_x',
+      fetch: fetchMock as unknown as typeof fetch,
+    });
+    const k = await client.poolKeys.reveal('65fabc');
+    expect(k.key).toBe(KEY_FIXTURE.key);
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toContain('/reseller/pool-keys/65fabc/reveal');
+    expect((init as RequestInit).method).toBe('POST');
+  });
+
+  it('audit() builds query string with action / before / limit', async () => {
+    const fetchMock = mockFetch(200, []);
+    const client = new ProxiesClient({
+      apiKey: 'psx_x',
+      fetch: fetchMock as unknown as typeof fetch,
+    });
+    await client.poolKeys.audit({
+      action: 'auto_suspended_cap_exceeded',
+      before: '2026-05-01T00:00:00Z',
+      limit: 50,
+    });
+    const [url] = fetchMock.mock.calls[0]!;
+    expect(url).toContain('/reseller/pool-keys/audit?');
+    expect(url).toContain('action=auto_suspended_cap_exceeded');
+    expect(url).toContain('before=2026-05-01');
+    expect(url).toContain('limit=50');
+  });
+
+  it('audit() with no opts hits the bare path', async () => {
+    const fetchMock = mockFetch(200, []);
+    const client = new ProxiesClient({
+      apiKey: 'psx_x',
+      fetch: fetchMock as unknown as typeof fetch,
+    });
+    await client.poolKeys.audit();
+    const [url] = fetchMock.mock.calls[0]!;
+    expect(url).toMatch(/\/reseller\/pool-keys\/audit$/);
+  });
+
+  it('audit() accepts a Date for `before` and serializes ISO', async () => {
+    const fetchMock = mockFetch(200, []);
+    const client = new ProxiesClient({
+      apiKey: 'psx_x',
+      fetch: fetchMock as unknown as typeof fetch,
+    });
+    await client.poolKeys.audit({ before: new Date('2026-04-01T12:00:00Z') });
+    const [url] = fetchMock.mock.calls[0]!;
+    expect(url).toContain('before=2026-04-01T12');
+  });
+
+  it('audit() rejects non-positive limit', async () => {
+    const client = new ProxiesClient({ apiKey: 'psx_x' });
+    await expect(client.poolKeys.audit({ limit: 0 })).rejects.toThrow(
+      /limit must be > 0/,
+    );
+  });
+
+  it('auditForKey() builds the per-key path with limit / before only', async () => {
+    const fetchMock = mockFetch(200, []);
+    const client = new ProxiesClient({
+      apiKey: 'psx_x',
+      fetch: fetchMock as unknown as typeof fetch,
+    });
+    await client.poolKeys.auditForKey('a/b', {
+      limit: 25,
+      before: '2026-04-30T00:00:00Z',
+    });
+    const [url] = fetchMock.mock.calls[0]!;
+    // keyId URL-encoded
+    expect(url).toContain('/reseller/pool-keys/a%2Fb/audit?');
+    expect(url).toContain('limit=25');
+    expect(url).toContain('before=2026-04-30');
+    // Per-key endpoint does NOT support action filter — should not appear
+    expect(url).not.toContain('action=');
+  });
+
+  it('auditForKey() requires keyId', async () => {
+    const client = new ProxiesClient({ apiKey: 'psx_x' });
+    await expect(client.poolKeys.auditForKey('')).rejects.toThrow(
+      /keyId is required/,
+    );
+  });
+
+  it('reveal() requires keyId', async () => {
+    const client = new ProxiesClient({ apiKey: 'psx_x' });
+    await expect(client.poolKeys.reveal('')).rejects.toThrow(
+      /keyId is required/,
+    );
+  });
+
+  // ────────────────────────────────────────────────────────────────────
   //  0.3.1: pool.getStock() shape lock + runtime validator
   //  Coronium audit 2026-05-01 — type was unrelated to the live shape.
   // ────────────────────────────────────────────────────────────────────

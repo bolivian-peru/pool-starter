@@ -299,9 +299,18 @@ await proxies.poolKeys.topUp(keyId, {              // atomic cap+expiry extensio
   idempotencyKey: `topup_${invoiceId}`,
 });
 await proxies.poolKeys.regenerate(keyId);          // rotate the secret (old pak_ stops working immediately)
+await proxies.poolKeys.reveal(keyId);              // audit-logged unmask (v0.5.0+)
+await proxies.poolKeys.audit({ limit: 50 });       // 90-day forensic log across all keys (v0.5.0+)
+await proxies.poolKeys.auditForKey(keyId);         // forensic log for one key (v0.5.0+)
 await proxies.poolKeys.delete(keyId);              // permanent
 await proxies.pool.getStock();                     // live endpoint count by country
 await proxies.pool.getIncidents();                 // active pool incidents
+```
+
+**Auto-suspend on cap (v0.5.0+):** when traffic crosses `trafficCapGB`, the platform flips `enabled=false` automatically. `topUp()` does NOT auto re-enable. For trusted payment paths, pair the call:
+```ts
+await proxies.poolKeys.topUp(keyId, { addTrafficGB: 10, idempotencyKey: invoiceId });
+await proxies.poolKeys.update(keyId, { enabled: true });   // lift the suspend
 ```
 
 **Time-bounded credits with `expiresAt` (v0.2.0+):**

@@ -5,6 +5,76 @@ All notable changes to this package are documented here. The format is based on
 semver from 0.3.0 onwards (the public surface is everything exported from
 `dist/index.d.ts`).
 
+## 0.5.0 — Pool Access Key security hardening
+
+Tracks the platform's May 2026 pak_ security update. Three new endpoints,
+zero behavioral changes for existing methods. Companion docs:
+[POOL-ACCESS-KEYS.md](https://github.com/bolivian-peru/gb-system-api/blob/master/POOL-ACCESS-KEYS.md)
+on the platform side.
+
+### Added
+
+- **`client.poolKeys.reveal(keyId): Promise<PoolAccessKey>`** —
+  audit-logged unmask. Returns the same payload as `get()` but the
+  platform records a `reveal` event with the caller's IP / UA / request
+  id. Use in your customer-facing dashboards instead of displaying the
+  raw `key` from `list()` — gives forensic visibility for compromise
+  investigations. Stripe / GitHub / AWS-style credential UX.
+
+- **`client.poolKeys.audit(opts?): Promise<PoolAccessKeyAuditEvent[]>`** —
+  forensic log across ALL of your pak_ keys. Supports `{ action?, before?, limit? }`.
+  90-day TTL on the platform; archive to your own SIEM if needed.
+  Useful for support tooling, fraud detection, billing-dispute resolution.
+
+- **`client.poolKeys.auditForKey(keyId, opts?): Promise<PoolAccessKeyAuditEvent[]>`** —
+  same shape, scoped to one key. Good for "my customer says their key
+  stopped working" investigations.
+
+- **`PakAuditAction`** type — union of recorded action names:
+  `'create' | 'update' | 'topup' | 'regenerate' | 'reveal' | 'delete' |
+  'gateway_auth_success' | 'gateway_auth_failure' |
+  'auto_suspended_cap_exceeded' | 'auto_suspended_expired'`.
+
+- **`PoolAccessKeyAuditEvent`** type — `{ id, pakId?, action, ip, userAgent,
+  requestId, authMethod, metadata, createdAt }`.
+
+- **`AuditQueryOpts`** type for `audit()` / `auditForKey()` opts.
+
+### Behavior change to be aware of (server-side, not SDK)
+
+- **Auto-suspend on cap exceeded.** The platform now atomically flips
+  `enabled = false` when a key's `trafficUsedMB / 1024 ≥ trafficCapGB`.
+  This is intentional — caps financial blast radius if a key leaks.
+  **`topUp()` does NOT auto re-enable.** If your auto-topup flow
+  (e.g., Stripe webhook) tops up a customer who hit their cap, you
+  must explicitly re-enable:
+
+  ```ts
+  await proxies.poolKeys.topUp(keyId, { addTrafficGB: 10 });
+  await proxies.poolKeys.update(keyId, { enabled: true });
+  ```
+
+  This is by design: forces a deliberate decision per top-up so a
+  leaked key can't auto-recover from a cap suspend without owner
+  review. The starter app's Stripe webhook (`apps/starter/src/app/api/stripe/webhook/route.ts`)
+  has been updated to the new pattern in 0.5.0.
+
+### FreshAuthGuard (server-side, not SDK)
+
+The platform now requires recent auth (JWT < 5 min OR
+`X-Confirm-Password` header) for `POST /pool-keys` (mint) and
+`POST /:keyId/regenerate`. **`psx_` API-key callers bypass this
+entirely** — your server-to-server SDK calls see zero behavior change.
+Don't add `X-Confirm-Password` from server code. Compensating controls:
+per-key rate limit + audit log on every mutation.
+
+### Backwards compatibility
+
+Fully additive on the SDK surface. Existing calls behave identically.
+The auto-suspend behavior change is technically a server-side
+behavioral change but only affects the small subset of integrations
+that auto-topup an over-cap key without explicit re-enable.
+
 ## 0.4.0 — Sessions API (multi-port spawner UX)
 
 Coronium audit follow-up (2026‑05‑01): expose live gateway session
