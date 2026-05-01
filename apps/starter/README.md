@@ -198,7 +198,7 @@ Proxies.sx API
 
 ### Time-bounded credits (optional)
 
-If your retail product is "10 GB, use within 60 days", set `expiresAt` when minting in the Stripe webhook handler:
+If your retail product is "10 GB, use within 60 days", set `expiresAt` when minting in the Stripe webhook handler. **Always pass `idempotencyKey`** so a 504 retry doesn't double-mint:
 
 ```ts
 // src/app/api/stripe/webhook/route.ts — inside handleCheckoutCompleted
@@ -206,15 +206,17 @@ const key = await proxies.poolKeys.create({
   label: `customer:${customerId}`,
   trafficCapGB: gbPurchased,
   expiresAt: new Date(Date.now() + 60 * 86_400_000).toISOString(),
+  idempotencyKey: `mint_${session.id}`,        // SDK ≥ 0.3.0 — required for retry safety
 });
 ```
 
-On top-up (subsequent purchases by the same customer), bump `trafficCapGB` AND push `expiresAt` forward in the same `update()` call:
+On top-up (subsequent purchases by the same customer), prefer `poolKeys.topUp()` (SDK ≥ 0.3.0) over a read-modify-write via `update()`. It's atomic server-side and idempotent:
 
 ```ts
-await proxies.poolKeys.update(customer.pakKeyId, {
-  trafficCapGB: customer.capGB + gbPurchased,
-  expiresAt: new Date(Date.now() + 60 * 86_400_000).toISOString(),
+await proxies.poolKeys.topUp(customer.pakKeyId, {
+  addTrafficGB: gbPurchased,                   // server-side $inc, race-safe
+  extendDays: 60,                              // expiresAt = max(now, current) + 60d
+  idempotencyKey: `topup_${session.id}`,
 });
 ```
 

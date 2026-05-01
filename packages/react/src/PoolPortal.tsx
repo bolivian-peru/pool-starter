@@ -424,11 +424,21 @@ function StockIndicator({
   stock,
 }: {
   country: Country;
-  stock: { countries: Array<{ country: Country; mbl: { online: number }; peer: { online: number } }> };
+  /**
+   * Live shape from `GET /v1/gateway/pool/stock`. Pre-0.3.1 the SDK
+   * declared `{ countries: [...] }` which never matched the running
+   * server — every dashboard rendered a blank stock indicator. Now
+   * keyed by lowercase ISO country code (e.g. `'us'`).
+   */
+  stock: {
+    pools: { mbl: Record<string, number>; peer: Record<string, number> };
+  };
 }): JSX.Element | null {
-  const entry = stock.countries.find((c) => c.country === country);
-  if (!entry) return null;
-  const online = entry.mbl.online + entry.peer.online;
+  const k = country.toLowerCase();
+  const mbl = stock.pools?.mbl?.[k] ?? 0;
+  const peer = stock.pools?.peer?.[k] ?? 0;
+  const online = mbl + peer;
+  if (online === 0) return null;
   const healthy = online >= 3;
   return (
     <div

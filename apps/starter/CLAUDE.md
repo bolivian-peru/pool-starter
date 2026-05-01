@@ -67,12 +67,53 @@ The platform supports `expiresAt` on `pak_` keys (SDK ≥ 0.2.0). To ship "10 GB
      label: `customer:${customerId}`,
      trafficCapGB: gbPurchased,
      expiresAt: new Date(Date.now() + 60 * 86_400_000).toISOString(),
+     idempotencyKey: `mint_${session.id}`,  // safe to retry on 504 (SDK ≥ 0.3.0)
    });
    ```
-2. On subsequent top-ups, bump `trafficCapGB` AND push `expiresAt` forward in the same `update()` call.
-3. Surface it in the `/api/pool/me` response — `<PoolPortal />` will render the countdown banner automatically.
+2. On subsequent top-ups, prefer `poolKeys.topUp()` (SDK ≥ 0.3.0) over a
+   read-modify-write via `update()`. It's atomic server-side and idempotent:
+   ```ts
+   await proxies.poolKeys.topUp(customer.pak_key_id, {
+     addTrafficGB: tier.gb,        // server $inc, race-safe
+     extendDays: 60,               // expiresAt = max(now, current) + 60d
+     idempotencyKey: `topup_${session.id}`,
+   });
+   ```
+3. Surface `expiresAt` and `isExpired` in the `/api/pool/me` response —
+   `<PoolPortal />` will render the countdown banner automatically.
 
 The gateway rejects expired keys inline (no waiting for a cron). The platform's nightly cron at 03:30 UTC just flips `enabled = false` for tidy admin queries; do NOT rely on it for revocation.
+
+### Idempotency, retry, and request-id (SDK ≥ 0.3.0)
+
+The SDK now retries on 5xx/429/timeouts/network errors with full jitter
+and honors `Retry-After`. Skip 4xx (except 429). **Don't wrap your own
+retry** — combining causes thundering herd. Override per call site:
+
+```ts
+const proxies = new ProxiesClient({
+  apiKey: process.env.PROXIES_SX_API_KEY!,
+  retry: { attempts: 5, baseDelayMs: 500, maxDelayMs: 8_000 },
+  // or `retry: false` to fully disable
+});
+```
+
+Pass `idempotencyKey` on every write call from a webhook/payment flow
+(`create`, `topUp`, `regenerate`). Tie it to a domain object (Stripe
+event id, ledger id, invoice id) so the value is stable across retries.
+
+When errors happen, log `err.requestId` — that's the `X-Request-ID` the
+platform uses to look up your request server-side. Paste it in support
+tickets to skip log-grepping.
+
+```ts
+catch (err) {
+  if (err instanceof ProxiesApiError) {
+    logger.error({ status: err.status, requestId: err.requestId, body: err.body });
+  }
+  throw err;
+}
+```
 
 ### Switch from the dev console-logger to real email
 Set `EMAIL_SERVER_HOST`, `EMAIL_SERVER_PORT`, `EMAIL_SERVER_USER`, `EMAIL_SERVER_PASSWORD`, `EMAIL_FROM` in `.env`. NextAuth picks them up automatically (see `src/lib/auth.ts` — the presence of `EMAIL_SERVER_HOST` + `EMAIL_FROM` flips SMTP on).

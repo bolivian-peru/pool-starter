@@ -208,10 +208,18 @@ const proxies = new ProxiesClient({
 const key = await proxies.poolKeys.create({
   label: `customer:${session.customer}`,
   trafficCapGB: Number(session.metadata?.gb),
-  // Optional: 60-day expiry. Top-ups extend it via poolKeys.update().
+  // Optional: 60-day expiry. Top-ups extend it via poolKeys.topUp() (preferred over update).
   expiresAt: new Date(Date.now() + 60 * 86_400_000).toISOString(),
+  idempotencyKey: `mint_${session.id}`,        // SDK ≥ 0.3.0 — protect against double-mint on retry
 });
 await db.customers.update(customerId, { pakKeyId: key.id });
+
+// On subsequent top-ups, prefer topUp() over update() — atomic + idempotent.
+await proxies.poolKeys.topUp(key.id, {
+  addTrafficGB: 10,                            // server-side $inc, race-safe
+  extendDays: 60,                              // pushes expiresAt forward
+  idempotencyKey: `topup_${invoiceId}`,
+});
 ```
 
 ### Time-bounded credits in the dashboard (v0.2.0+)

@@ -115,9 +115,13 @@ async function handleCheckoutCompleted(sess: Stripe.Checkout.Session): Promise<v
 
   if (!customer?.pak_key_id) {
     // First purchase — mint the key with this tier's GB as the cap.
+    // Pass idempotencyKey tied to the Stripe checkout session so a retry
+    // (network blip after platform mints the key, before we get the
+    // response) returns the cached key instead of minting a second one.
     const key = await proxies.poolKeys.create({
       label: `customer:${userId}`,
       trafficCapGB: newTotalGb,
+      idempotencyKey: `mint_${session.id}`,
     });
     await query(
       `UPDATE customers
@@ -128,8 +132,14 @@ async function handleCheckoutCompleted(sess: Stripe.Checkout.Session): Promise<v
       [key.id, newTotalGb, userId],
     );
   } else {
-    // Top-up — raise the cap.
-    await proxies.poolKeys.update(customer.pak_key_id, { trafficCapGB: newTotalGb });
+    // Top-up — raise the cap atomically via topUp(). Server-side $inc
+    // means concurrent top-ups don't clobber each other. The
+    // idempotencyKey tied to the Stripe session means a retry returns
+    // the cached response instead of double-crediting the customer.
+    await proxies.poolKeys.topUp(customer.pak_key_id, {
+      addTrafficGB: tier.gb,
+      idempotencyKey: `topup_${session.id}`,
+    });
     await query(
       `UPDATE customers
          SET total_gb_purchased = $1,
