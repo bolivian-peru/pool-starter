@@ -12,6 +12,16 @@
 export { PoolPortal } from './PoolPortal';
 export type { PoolPortalProps } from './PoolPortal';
 
+export { PoolSessionSpawner, buildProxyString } from './PoolSessionSpawner';
+export type {
+  PoolSessionSpawnerProps,
+  SessionType,
+  SpawnMeta,
+} from './PoolSessionSpawner';
+
+export { ActiveSessionsTable } from './ActiveSessionsTable';
+export type { ActiveSessionsTableProps } from './ActiveSessionsTable';
+
 export {
   usePoolKey,
   usePoolStock,

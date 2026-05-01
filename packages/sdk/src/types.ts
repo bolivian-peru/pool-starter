@@ -232,6 +232,72 @@ export interface PoolStock {
   generatedAt: string;
 }
 
+/**
+ * One live gateway session for a customer. Returned by `client.sessions.list()`.
+ *
+ * @since 0.4.0
+ */
+export interface ActiveSession {
+  /** Internal Redis key — used as the id when calling `sessions.close()`. */
+  sessionKey: string;
+  /** The accountId (proxyUsername) the session belongs to. */
+  accountId: string;
+  /**
+   * The session id from the customer's `-sid-` token, or a synthesized
+   * `auto_*` / `socks5_*` id for sessions created without an explicit sid.
+   * Synthesized sessions get a 5-min TTL and are not meant to be reused.
+   * Use `isSynthesizedSid` to filter them out of customer-facing UIs.
+   */
+  sessionId: string;
+  /** Pool the session is routed through. `mbl` = ProxySmart mobile modems, `peer` = residential. */
+  pool: Pool;
+  /** ISO country code (lowercase). */
+  country: string;
+  /** Carrier name if known, `'N/A'` otherwise. */
+  carrier: string;
+  /** Last observed exit IP (updates as rotation fires). */
+  currentIp: string;
+  /** Unix ms when the session was first opened. */
+  createdAt: number;
+  /** Unix ms of the last observed activity. */
+  lastActivityAt: number;
+  /** Unix ms after which Redis evicts the session automatically. */
+  expiresAt: number;
+  /** Total requests proxied through this session so far. */
+  requestCount: number;
+  /** Total bytes received from the upstream. */
+  bytesIn: number;
+  /** Total bytes sent to the upstream. */
+  bytesOut: number;
+  /** Endpoint id this session is currently bound to. */
+  endpointId: string;
+  /** Rotation token from the username DSL. */
+  rotation: RotationMode | string;
+  /** Seconds until automatic eviction. Counts down each call. */
+  ttl: number;
+  /**
+   * Customer-facing HTTP proxy URL with a `<PASSWORD>` placeholder.
+   * Substitute with the user's `pak_` or `proxyPassword` client-side
+   * before exposing or copying. Never write the substituted value to
+   * server logs.
+   */
+  proxyUrl: string;
+  /** Same shape as `proxyUrl` but `socks5://` and port 7001. */
+  socks5Url: string;
+  /**
+   * `true` when the session id is synthesized (no `-sid-` was supplied).
+   * Filter these out of customer-facing tables — they're internal and
+   * have a short 5-min TTL.
+   */
+  isSynthesizedSid: boolean;
+}
+
+/** Response from `client.sessions.list()`. */
+export interface ActiveSessionsResponse {
+  sessions: ActiveSession[];
+  count: number;
+}
+
 /** Incident notice (unauthenticated public endpoint). */
 export interface Incident {
   id: string;

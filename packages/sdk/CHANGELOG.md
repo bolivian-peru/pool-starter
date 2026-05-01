@@ -5,6 +5,44 @@ All notable changes to this package are documented here. The format is based on
 semver from 0.3.0 onwards (the public surface is everything exported from
 `dist/index.d.ts`).
 
+## 0.4.0 — Sessions API (multi-port spawner UX)
+
+Coronium audit follow-up (2026‑05‑01): expose live gateway session
+state so resellers can build the same multi-port spawner / active-
+sessions-table UX as `client.proxies.sx/pool-proxy`.
+
+### Added
+
+- **`client.sessions` namespace** with three methods:
+  - `list(): Promise<{ sessions: ActiveSession[]; count }>` — current
+    user's live sessions, with `proxyUrl` and `socks5Url` template
+    strings (`<PASSWORD>` placeholder for client-side substitution).
+  - `close(sessionKey): Promise<{ success, message }>` — close one
+    session. Idempotent + ownership-checked server-side.
+  - `closeAll(): Promise<{ success, count }>` — close all live sessions
+    for the current user. Use sparingly — kills every live connection.
+- **`ActiveSession` type** with full session metadata: `country`,
+  `pool`, `currentIp`, `bytesIn`/`bytesOut`, `requestCount`, `ttl`,
+  `proxyUrl`, `socks5Url`, `isSynthesizedSid`, etc.
+- **`ActiveSessionsResponse`** (`{ sessions, count }`) export.
+
+### Fixed (gateway-side, accompanies this SDK)
+
+- **Phantom-session TTL** — sessions created without an explicit `-sid-`
+  token (synthesized `auto_*`/`socks5_*` ids) now expire after 5 min
+  instead of 1 hour. They were filling up the active-sessions list with
+  ad-hoc-curl noise. Real customer sessions (with `-sid-`) keep their
+  full TTL. The SDK exposes this as `session.isSynthesizedSid: true`
+  so dashboards can hide them.
+
+### Backwards compatibility
+
+Additive only. Existing `poolKeys.*`, `pool.*`, retry, idempotency,
+`topUp()`, `get()` all unchanged. Bump `^0.3.1` → `^0.4.0` to use the
+new `sessions` namespace.
+
+---
+
 ## 0.3.1 — PoolStock shape fix (P0)
 
 Surfaced by Coronium's live integration audit (2026‑05‑01). The

@@ -6,7 +6,7 @@
  * @packageDocumentation
  */
 
-export { ProxiesClient, PoolKeysApi, PoolApi } from './client';
+export { ProxiesClient, PoolKeysApi, PoolApi, SessionsApi } from './client';
 export { buildProxyUrl, GATEWAY_HOST, HTTP_PORT, SOCKS5_PORT } from './url';
 export {
   ProxiesError,
@@ -25,6 +25,8 @@ export type {
   UpdatePoolAccessKeyInput,
   TopUpPoolAccessKeyInput,
   RetryConfig,
+  ActiveSession,
+  ActiveSessionsResponse,
   BuildProxyUrlOpts,
   PoolStock,
   Incident,

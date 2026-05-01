@@ -41,7 +41,13 @@ export interface PoolApiHandlerOptions {
   /**
    * Optional: called after any write (e.g. regenerate) so hosts can log audit events.
    */
-  onAudit?: (event: { type: string; userId: string; keyId?: string }) => void | Promise<void>;
+  onAudit?: (event: {
+    type: string;
+    userId: string;
+    keyId?: string;
+    sessionKey?: string;
+    count?: number;
+  }) => void | Promise<void>;
 }
 
 interface RouteHandlers {
@@ -49,6 +55,8 @@ interface RouteHandlers {
   GET: (req: Request) => Promise<Response>;
   /** Handler for any non-read verbs on nested paths (regenerate, etc.). */
   POST: (req: Request) => Promise<Response>;
+  /** Handler for session-close routes (added in 0.4.0). */
+  DELETE: (req: Request) => Promise<Response>;
 }
 
 /**
@@ -177,6 +185,76 @@ export function createPoolApiHandlers(options: PoolApiHandlerOptions): RouteHand
     }
   };
 
+  /**
+   * GET /me/sessions — proxies to the SDK's `client.sessions.list()`.
+   * Returns the authenticated user's live gateway sessions only —
+   * the upstream `/v1/gateway/pool/my-sessions` is already user-scoped
+   * via the API key. We just pass through with a private cache header.
+   */
+  const handleListSessions = async (req: Request): Promise<Response> => {
+    const userId = await getSessionUserId(req);
+    if (!userId) return json({ error: 'unauthorized' }, { status: 401 });
+
+    try {
+      const result = await proxies.sessions.list();
+      return json(result, { headers: { 'Cache-Control': 'private, no-store' } });
+    } catch (err) {
+      const apiErr = err as ProxiesApiError;
+      return json(
+        { error: 'upstream_error' },
+        { status: apiErr.status && apiErr.status < 600 ? apiErr.status : 502 },
+      );
+    }
+  };
+
+  /**
+   * DELETE /me/sessions/:sessionKey — closes one session.
+   * Ownership is enforced upstream (the SDK call uses the user-scoped
+   * route which 404s if the sessionKey doesn't belong to the API key's
+   * owner). We don't re-check here.
+   */
+  const handleCloseSession = async (
+    req: Request,
+    sessionKey: string,
+  ): Promise<Response> => {
+    const userId = await getSessionUserId(req);
+    if (!userId) return json({ error: 'unauthorized' }, { status: 401 });
+
+    try {
+      const result = await proxies.sessions.close(sessionKey);
+      if (onAudit) {
+        await onAudit({ type: 'session.closed', userId, sessionKey });
+      }
+      return json(result);
+    } catch (err) {
+      const apiErr = err as ProxiesApiError;
+      return json(
+        { error: 'upstream_error' },
+        { status: apiErr.status && apiErr.status < 600 ? apiErr.status : 502 },
+      );
+    }
+  };
+
+  /** DELETE /me/sessions — closes ALL sessions for the current user. */
+  const handleCloseAllSessions = async (req: Request): Promise<Response> => {
+    const userId = await getSessionUserId(req);
+    if (!userId) return json({ error: 'unauthorized' }, { status: 401 });
+
+    try {
+      const result = await proxies.sessions.closeAll();
+      if (onAudit) {
+        await onAudit({ type: 'sessions.closed_all', userId, count: result.count });
+      }
+      return json(result);
+    } catch (err) {
+      const apiErr = err as ProxiesApiError;
+      return json(
+        { error: 'upstream_error' },
+        { status: apiErr.status && apiErr.status < 600 ? apiErr.status : 502 },
+      );
+    }
+  };
+
   const handleRegenerate = async (req: Request): Promise<Response> => {
     const userId = await getSessionUserId(req);
     if (!userId) return json({ error: 'unauthorized' }, { status: 401 });
@@ -204,6 +282,7 @@ export function createPoolApiHandlers(options: PoolApiHandlerOptions): RouteHand
     if (p.endsWith('/me')) return handleMe(req);
     if (p.endsWith('/stock')) return handleStock();
     if (p.endsWith('/incidents')) return handleIncidents();
+    if (p.endsWith('/my-sessions')) return handleListSessions(req);
     return json({ error: 'not_found' }, { status: 404 });
   };
 
@@ -213,5 +292,21 @@ export function createPoolApiHandlers(options: PoolApiHandlerOptions): RouteHand
     return json({ error: 'not_found' }, { status: 404 });
   };
 
-  return { GET, POST };
+  /**
+   * DELETE /my-sessions          — close all
+   * DELETE /my-sessions/<key>    — close one
+   */
+  const DELETE = async (req: Request): Promise<Response> => {
+    const p = pathOf(req);
+    // /my-sessions exactly → closeAll. /my-sessions/<key> → close one.
+    const m = p.match(/\/my-sessions(?:\/(.+))?$/);
+    if (m) {
+      const sessionKey = m[1] ? decodeURIComponent(m[1]) : '';
+      if (!sessionKey) return handleCloseAllSessions(req);
+      return handleCloseSession(req, sessionKey);
+    }
+    return json({ error: 'not_found' }, { status: 404 });
+  };
+
+  return { GET, POST, DELETE };
 }

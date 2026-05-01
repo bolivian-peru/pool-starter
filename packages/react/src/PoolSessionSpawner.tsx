@@ -1,0 +1,420 @@
+'use client';
+
+import {
+  type CSSProperties,
+  type JSX,
+  type ReactNode,
+  useCallback,
+  useMemo,
+  useState,
+} from 'react';
+import type {
+  Country,
+  Pool,
+  Protocol,
+  RotationMode,
+  Branding,
+  PoolPortalClassNames,
+} from './types';
+
+/**
+ * Mode for the `-sid-` token across spawned URLs.
+ *
+ * - `unique`: each spawned URL gets a different sid (`<prefix><index>`),
+ *   so each one creates its OWN gateway session and pins to its OWN
+ *   IP. Use when you want N parallel proxies that don't share an IP.
+ * - `same`: all spawned URLs share a single sid. They all hit the
+ *   SAME gateway session and SAME IP. Use for sticky-IP workflows
+ *   that distribute work across multiple consumers.
+ * - `none`: no sid token. The gateway synthesizes a per-connection
+ *   `auto_*` id with 5-min TTL — fine for one-shot probes, NOT for
+ *   stateful workflows. The active-sessions table hides these by default.
+ *
+ * @public
+ */
+export type SessionType = 'unique' | 'same' | 'none';
+
+/**
+ * Props for {@link PoolSessionSpawner}.
+ *
+ * @public
+ */
+export interface PoolSessionSpawnerProps {
+  /** Reseller's `proxyUsername` (e.g. `psx_abc123`). */
+  proxyUsername: string;
+  /**
+   * The customer's password for proxy auth. Either a `pak_` key (preferred,
+   * minted via `client.poolKeys.create()`) or the user's proxy-password.
+   * The component holds this in component state only — never logs it.
+   */
+  proxyPassword: string;
+  /** Available countries the user can choose. Defaults to the current Pool Gateway list. */
+  countries?: readonly Country[];
+  /** Default country selected on mount. */
+  defaultCountry?: Country;
+  /** Default pool selected on mount. */
+  defaultPool?: Pool;
+  /** Default protocol selected on mount. */
+  defaultProtocol?: Protocol;
+  /** Default rotation mode selected on mount. */
+  defaultRotation?: RotationMode;
+  /** Default sid mode selected on mount. */
+  defaultSessionType?: SessionType;
+  /** Maximum number of URLs the spawner can generate at once. Default 100. */
+  maxCount?: number;
+  /** Gateway hostname override (for edge deployments). Default `gw.proxies.sx`. */
+  gatewayHost?: string;
+  /**
+   * Called every time the user clicks "Generate". Receives the
+   * generated URLs as an array. The component already copies them
+   * to clipboard by default — use this to log analytics, persist a
+   * "last generation" record, etc.
+   */
+  onSpawn?: (urls: string[], meta: SpawnMeta) => void;
+  /** Branding for CSS custom properties (`--psx-primary`, etc.). */
+  branding?: Branding;
+  /** Per-part className overrides for Tailwind / custom CSS. */
+  classNames?: PoolPortalClassNames;
+  /** Extra class on the root element. */
+  className?: string;
+  /** Inline style override on the root. */
+  style?: CSSProperties;
+  /** Optional empty-state slot when proxy creds are missing. */
+  emptyState?: ReactNode;
+}
+
+/**
+ * Metadata about a generation, passed to `onSpawn`.
+ * @public
+ */
+export interface SpawnMeta {
+  count: number;
+  country: Country;
+  pool: Pool;
+  protocol: Protocol;
+  rotation: RotationMode;
+  sessionType: SessionType;
+  /** Random prefix used to make sids unique-per-generation. */
+  sessionPrefix: string;
+  generatedAt: number;
+}
+
+/* ── Constants ────────────────────────────────────────────────────────── */
+
+const DEFAULT_COUNTRIES: readonly Country[] = ['us', 'de', 'gb', 'es', 'fr', 'pl'];
+
+const COUNTRY_LABELS: Record<string, { name: string; flag: string }> = {
+  us: { name: 'United States', flag: '\u{1F1FA}\u{1F1F8}' },
+  de: { name: 'Germany', flag: '\u{1F1E9}\u{1F1EA}' },
+  gb: { name: 'United Kingdom', flag: '\u{1F1EC}\u{1F1E7}' },
+  es: { name: 'Spain', flag: '\u{1F1EA}\u{1F1F8}' },
+  fr: { name: 'France', flag: '\u{1F1EB}\u{1F1F7}' },
+  pl: { name: 'Poland', flag: '\u{1F1F5}\u{1F1F1}' },
+};
+
+const ROTATION_OPTS: { value: RotationMode; label: string }[] = [
+  { value: 'none', label: 'Default (10 min)' },
+  { value: 'auto10', label: '10 minutes' },
+  { value: 'sticky', label: 'Sticky (no rotation)' },
+  { value: 'hard', label: 'Hard (new IP per connection)' },
+];
+
+/* ── Helpers ──────────────────────────────────────────────────────────── */
+
+function randomPrefix(): string {
+  const chars = 'abcdefghjkmnpqrstuvwxyz23456789';
+  return Array.from({ length: 8 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+}
+
+/**
+ * Build a single proxy URL. Same DSL as `client.proxies.sx/pool-proxy`.
+ *
+ * The credentials half (`username:password`) is URL-encoded, so user-
+ * supplied sids with `@` / `:` / `/` survive into the username portion
+ * intact.
+ *
+ * @public
+ */
+export function buildProxyString(opts: {
+  proxyUsername: string;
+  proxyPassword: string;
+  pool: Pool;
+  country: Country;
+  protocol: Protocol;
+  rotation: RotationMode;
+  sessionType: SessionType;
+  sessionPrefix: string;
+  index: number;
+  gatewayHost?: string;
+}): string {
+  const port = opts.protocol === 'http' ? 7000 : 7001;
+  const tokens = [opts.pool, opts.country];
+  if (opts.sessionType === 'unique') tokens.push('sid', `${opts.sessionPrefix}${opts.index}`);
+  else if (opts.sessionType === 'same') tokens.push('sid', opts.sessionPrefix);
+  // 'none' → no -sid- token; gateway synthesizes a 5-min-TTL id.
+  if (opts.rotation !== 'none' && opts.rotation !== 'auto10') {
+    tokens.push('rot', opts.rotation);
+  }
+  const username = `${opts.proxyUsername}-${tokens.join('-')}`;
+  const host = opts.gatewayHost ?? 'gw.proxies.sx';
+  return `${opts.protocol}://${encodeURIComponent(username)}:${encodeURIComponent(opts.proxyPassword)}@${host}:${port}`;
+}
+
+/* ── Component ────────────────────────────────────────────────────────── */
+
+/**
+ * Multi-port spawner — generate N proxy URLs in one click with full
+ * country / pool / rotation / sid-mode controls. Mirrors the
+ * `client.proxies.sx/pool-proxy` UX; drop-in for resellers who want
+ * customer-facing parity for free.
+ *
+ * The proxyPassword you pass in (a `pak_` key or proxy-password) is
+ * embedded directly in the generated URLs — it never leaves the user's
+ * browser unless they paste a URL somewhere themselves.
+ *
+ * @example
+ * ```tsx
+ * <PoolSessionSpawner
+ *   proxyUsername={me.proxyUsername}
+ *   proxyPassword={me.pakKey}
+ *   defaultPool="mbl"
+ *   onSpawn={(urls) => analytics.track('proxy_spawn', { count: urls.length })}
+ * />
+ * ```
+ *
+ * @public
+ */
+export function PoolSessionSpawner(props: PoolSessionSpawnerProps): JSX.Element {
+  const {
+    proxyUsername,
+    proxyPassword,
+    countries = DEFAULT_COUNTRIES,
+    defaultCountry = countries[0]!,
+    defaultPool = 'mbl',
+    defaultProtocol = 'http',
+    defaultRotation = 'none',
+    defaultSessionType = 'unique',
+    maxCount = 100,
+    gatewayHost,
+    onSpawn,
+    branding,
+    classNames = {},
+    className,
+    style,
+    emptyState,
+  } = props;
+
+  const [count, setCount] = useState(5);
+  const [country, setCountry] = useState<Country>(defaultCountry);
+  const [pool, setPool] = useState<Pool>(defaultPool);
+  const [protocol, setProtocol] = useState<Protocol>(defaultProtocol);
+  const [rotation, setRotation] = useState<RotationMode>(defaultRotation);
+  const [sessionType, setSessionType] = useState<SessionType>(defaultSessionType);
+  const [sessionPrefix] = useState(() => randomPrefix());
+  const [generated, setGenerated] = useState<string[]>([]);
+  const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+
+  const rootStyle = useMemo<CSSProperties>(() => brandingToStyle(branding, style), [branding, style]);
+
+  const handleGenerate = useCallback(() => {
+    if (!proxyUsername || !proxyPassword) return;
+    const urls: string[] = [];
+    for (let i = 1; i <= count; i++) {
+      urls.push(
+        buildProxyString({
+          proxyUsername, proxyPassword, pool, country, protocol, rotation,
+          sessionType, sessionPrefix, index: i, gatewayHost,
+        }),
+      );
+    }
+    setGenerated(urls);
+    void navigator.clipboard?.writeText(urls.join('\n'));
+    onSpawn?.(urls, {
+      count, country, pool, protocol, rotation, sessionType, sessionPrefix,
+      generatedAt: Date.now(),
+    });
+  }, [proxyUsername, proxyPassword, count, country, pool, protocol, rotation, sessionType, sessionPrefix, gatewayHost, onSpawn]);
+
+  const handleCopyOne = useCallback((url: string, idx: number) => {
+    void navigator.clipboard?.writeText(url);
+    setCopiedIndex(idx);
+    setTimeout(() => setCopiedIndex((p) => (p === idx ? null : p)), 1500);
+  }, []);
+
+  const handleDownload = useCallback(() => {
+    if (!generated.length) return;
+    const blob = new Blob([generated.join('\n')], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `proxies-${country}-${Date.now()}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, [generated, country]);
+
+  if (!proxyUsername || !proxyPassword) {
+    return (
+      <div className={cn('psx', 'psx-spawner-empty', classNames.root, className)} style={rootStyle}>
+        {emptyState ?? (
+          <p>Configure your proxy username and password to generate proxy URLs.</p>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className={cn('psx', 'psx-spawner', classNames.root, className)} style={rootStyle}>
+      <div className={cn('psx-spawner-controls', classNames.card)}>
+        {/* Count */}
+        <label className="psx-spawner-row">
+          <span>Count</span>
+          <input
+            type="number"
+            min={1}
+            max={maxCount}
+            value={count}
+            onChange={(e) => setCount(Math.max(1, Math.min(maxCount, Number(e.target.value) || 1)))}
+            className={cn('psx-input', classNames.input)}
+          />
+          <span className="psx-spawner-hint">1–{maxCount}</span>
+        </label>
+
+        {/* Country */}
+        <label className="psx-spawner-row">
+          <span>Country</span>
+          <select
+            value={country}
+            onChange={(e) => setCountry(e.target.value as Country)}
+            className={cn('psx-select', classNames.select)}
+          >
+            {countries.map((c) => {
+              const meta = COUNTRY_LABELS[c.toLowerCase()] ?? { name: c.toUpperCase(), flag: '🌐' };
+              return <option key={c} value={c}>{meta.flag} {meta.name}</option>;
+            })}
+          </select>
+        </label>
+
+        {/* Pool */}
+        <label className="psx-spawner-row">
+          <span>Pool</span>
+          <select
+            value={pool}
+            onChange={(e) => setPool(e.target.value as Pool)}
+            className={cn('psx-select', classNames.select)}
+          >
+            <option value="mbl">Mobile (mbl)</option>
+            <option value="peer">Residential peer</option>
+          </select>
+        </label>
+
+        {/* Protocol */}
+        <label className="psx-spawner-row">
+          <span>Protocol</span>
+          <select
+            value={protocol}
+            onChange={(e) => setProtocol(e.target.value as Protocol)}
+            className={cn('psx-select', classNames.select)}
+          >
+            <option value="http">HTTP (port 7000)</option>
+            <option value="socks5">SOCKS5 (port 7001)</option>
+          </select>
+        </label>
+
+        {/* Rotation */}
+        <label className="psx-spawner-row">
+          <span>Rotation</span>
+          <select
+            value={rotation}
+            onChange={(e) => setRotation(e.target.value as RotationMode)}
+            className={cn('psx-select', classNames.select)}
+          >
+            {ROTATION_OPTS.map((r) => (
+              <option key={r.value} value={r.value}>{r.label}</option>
+            ))}
+          </select>
+        </label>
+
+        {/* Session-id mode */}
+        <label className="psx-spawner-row">
+          <span>Session id</span>
+          <select
+            value={sessionType}
+            onChange={(e) => setSessionType(e.target.value as SessionType)}
+            className={cn('psx-select', classNames.select)}
+          >
+            <option value="unique">Unique per row (each gets its own IP)</option>
+            <option value="same">Same sid (all share one IP)</option>
+            <option value="none">No sid (synthesized, 5-min TTL)</option>
+          </select>
+        </label>
+
+        <button
+          type="button"
+          onClick={handleGenerate}
+          className={cn('psx-button', 'psx-spawner-generate', classNames.button)}
+        >
+          Generate {count} proxy URL{count > 1 ? 's' : ''}
+        </button>
+      </div>
+
+      {generated.length > 0 && (
+        <div className={cn('psx-spawner-output', classNames.card)}>
+          <div className="psx-spawner-output-header">
+            <span>{generated.length} proxies generated</span>
+            <div className="psx-spawner-output-actions">
+              <button
+                type="button"
+                onClick={() => {
+                  void navigator.clipboard?.writeText(generated.join('\n'));
+                }}
+                className={cn('psx-button', classNames.button)}
+              >
+                Copy all
+              </button>
+              <button
+                type="button"
+                onClick={handleDownload}
+                className={cn('psx-button', classNames.button)}
+              >
+                Download .txt
+              </button>
+            </div>
+          </div>
+          <ol className="psx-spawner-list">
+            {generated.map((url, i) => (
+              <li key={i}>
+                <code className="psx-spawner-url">{url}</code>
+                <button
+                  type="button"
+                  onClick={() => handleCopyOne(url, i)}
+                  className={cn('psx-button', 'psx-button-ghost', classNames.button)}
+                  aria-label={`Copy proxy ${i + 1}`}
+                >
+                  {copiedIndex === i ? 'Copied' : 'Copy'}
+                </button>
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── Internal helpers ─────────────────────────────────────────────────── */
+
+function cn(...parts: Array<string | undefined>): string {
+  return parts.filter(Boolean).join(' ');
+}
+
+function brandingToStyle(b: Branding | undefined, override: CSSProperties | undefined): CSSProperties {
+  if (!b) return override ?? {};
+  const cssVars: Record<string, string> = {};
+  if (b.primaryColor) cssVars['--psx-primary'] = b.primaryColor;
+  if (b.accentColor) cssVars['--psx-accent'] = b.accentColor;
+  if (b.radius) cssVars['--psx-radius'] = b.radius;
+  if (b.fontFamily) cssVars['--psx-font'] = b.fontFamily;
+  return { ...cssVars, ...override } as CSSProperties;
+}

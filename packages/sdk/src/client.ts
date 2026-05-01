@@ -8,6 +8,8 @@ import type {
   Incident,
   BuildProxyUrlOpts,
   RetryConfig,
+  ActiveSession,
+  ActiveSessionsResponse,
 } from './types';
 import {
   ProxiesError,
@@ -63,6 +65,9 @@ export class ProxiesClient {
   /** Pool health / stock / incident feeds (public, unauthenticated). */
   public readonly pool: PoolApi;
 
+  /** Live gateway session list + close operations for the current user. @since 0.4.0 */
+  public readonly sessions: SessionsApi;
+
   constructor(config: ClientConfig) {
     if (!config.apiKey) {
       throw new ProxiesConfigError('ProxiesClient: apiKey is required');
@@ -89,6 +94,7 @@ export class ProxiesClient {
 
     this.poolKeys = new PoolKeysApi(this);
     this.pool = new PoolApi(this);
+    this.sessions = new SessionsApi(this);
   }
 
   /**
@@ -423,6 +429,69 @@ export class PoolApi {
   /** Active incidents affecting the gateway, if any. Cached 60s. */
   getIncidents(): Promise<Incident[]> {
     return this.client.request<Incident[]>('/gateway/incidents');
+  }
+}
+
+/**
+ * Live gateway session management for the current user.
+ *
+ * Sessions are created automatically on first request through the
+ * gateway. They persist in Redis for the rotation TTL (1 hour by
+ * default; less for `auto5`/`auto20`/`auto60`/`hard`). Manual close is
+ * only needed if you want the session's pinned IP released BEFORE the
+ * TTL fires.
+ *
+ * Sessions created without an explicit `-sid-` token (synthesized
+ * `auto_*` ids) get a 5-min TTL — they're internal-only and shouldn't
+ * surface in customer dashboards. Filter via `session.isSynthesizedSid`.
+ *
+ * @since 0.4.0
+ */
+export class SessionsApi {
+  constructor(private readonly client: ProxiesClient) {}
+
+  /**
+   * List the current authenticated user's active sessions, including
+   * their `proxyUrl` template strings (with `<PASSWORD>` placeholder)
+   * for one-click copy in dashboards.
+   *
+   * @example
+   * ```ts
+   * const { sessions, count } = await client.sessions.list();
+   * for (const s of sessions) {
+   *   if (s.isSynthesizedSid) continue;            // hide internal
+   *   const url = s.proxyUrl.replace('<PASSWORD>', myPak);
+   *   console.log(s.country, s.currentIp, '→', url);
+   * }
+   * ```
+   */
+  list(): Promise<ActiveSessionsResponse> {
+    return this.client.request<ActiveSessionsResponse>('/gateway/pool/my-sessions');
+  }
+
+  /**
+   * Close ONE of the current user's sessions. The customer's connection
+   * drops on the next gateway-side check (within ~5 s).
+   *
+   * Idempotent — closing an already-closed or non-existent session is
+   * not an error (returns `success: false` with `Session not found`).
+   * Ownership is enforced server-side: passing a sessionKey that
+   * doesn't belong to the caller returns the same "not found" response.
+   */
+  close(sessionKey: string): Promise<{ success: boolean; message: string }> {
+    return this.client.request(
+      `/gateway/pool/my-sessions/${encodeURIComponent(sessionKey)}`,
+      { method: 'DELETE' },
+    );
+  }
+
+  /**
+   * Close ALL active sessions for the current user. Use sparingly —
+   * this terminates every live connection, including ones the customer
+   * is actively using.
+   */
+  closeAll(): Promise<{ success: boolean; message: string; count: number }> {
+    return this.client.request('/gateway/pool/my-sessions', { method: 'DELETE' });
   }
 }
 
