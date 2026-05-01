@@ -95,6 +95,31 @@ on top — it causes thundering herd. To disable, pass `retry: false`.
 | `regenerate(keyId, { idempotencyKey? }?)` | `PoolAccessKey` | Rotate the secret value (invalidates old). Returns full record from 0.3.0+ |
 | `delete(keyId)` | `void` | Permanently delete |
 
+### `proxies.sessions` (v0.4.0+)
+
+Live gateway session management for the current reseller's customers.
+
+| Method | Returns | Description |
+|---|---|---|
+| `list()` | `{ sessions: ActiveSession[]; count: number }` | All live sessions for the current account, with `proxyUrl`/`socks5Url` template strings (`<PASSWORD>` placeholder) |
+| `close(sessionKey)` | `{ success, message }` | Close one session. Idempotent + ownership-checked server-side |
+| `closeAll()` | `{ success, count }` | Close all live sessions for the current user |
+
+```ts
+const { sessions } = await proxies.sessions.list();
+for (const s of sessions) {
+  if (s.isSynthesizedSid) continue;            // hide internal auto_/socks5_ ids
+  const url = s.proxyUrl.replace('<PASSWORD>', myPak);
+  console.log(s.country, s.currentIp, s.ttl + 's left →', url);
+}
+await proxies.sessions.close('gw:session:psx_xxx:bot07');
+```
+
+`ActiveSession` carries `country`, `pool`, `currentIp`, `bytesIn/Out`,
+`requestCount`, `ttl`, `expiresAt`, `rotation`, `proxyUrl`, `socks5Url`,
+`isSynthesizedSid`. See [CHANGELOG.md](./CHANGELOG.md#040--sessions-api-multi-port-spawner-ux)
+for full type details.
+
 #### Idempotency on writes (v0.3.0+)
 
 `create()`, `topUp()`, and `regenerate()` accept an `idempotencyKey`

@@ -143,6 +143,79 @@ Don't import `styles.css` and write everything in Tailwind.
 
 ---
 
+## Additional components (v0.4.0+ / v0.4.1+)
+
+Compose with `<PoolPortal>` for full reseller-dashboard parity with `client.proxies.sx/pool-proxy`. All components self-contained, all honor the same `branding` / `classNames` / `style` props.
+
+### `<PoolSessionSpawner>` — multi-port URL generator (v0.4.0+)
+
+```tsx
+<PoolSessionSpawner
+  proxyUsername={me.proxyUsername}
+  proxyPassword={me.pakKey}
+  countries={['us', 'de', 'gb', 'es', 'fr', 'pl']}
+  defaultPool="mbl"
+  defaultRotation="sticky"
+  defaultSessionType="unique"        // unique-per-row sids → unique IPs
+  onSpawn={(urls) => analytics.track('proxy_spawn', { count: urls.length })}
+/>
+```
+
+Count slider (1–100), country / pool / protocol / rotation / sid-mode controls, "Generate" → N proxy URLs, per-row Copy + bulk Copy-all + Download .txt. The `showTtlControl` prop (v0.4.2 default true) exposes a "Session TTL override" field that appends `-ttl-<seconds>` to the username DSL (range 60-2592000 = 1 min to 30 days).
+
+Also exports `buildProxyString(opts)` and `defaultTtlSecondsForRotation(rotation)` helpers for hand-rolled UIs.
+
+### `<ActiveSessionsTable>` — live session manager (v0.4.0+)
+
+```tsx
+<ActiveSessionsTable
+  apiRoute="/api/pool"
+  proxyPassword={me.pakKey}
+  refreshIntervalMs={5_000}
+  onSessionClosed={(key) => toast.success(`Closed ${key.slice(-12)}`)}
+/>
+```
+
+Polls `GET /api/pool/my-sessions` (auto-handler) at 5 s default. Per-row: country, sid, IP, rotation, TTL countdown, bytes in/out, request count, Copy-URL (with password substitution), Close. Header Close-all + Refresh. Hides synthesized-sid sessions by default (`hideSynthesizedSessions`).
+
+### `<PoolDocsPanel>` — drop-in technical reference (v0.4.1+)
+
+```tsx
+<PoolDocsPanel
+  proxyUsername={me.proxyUsername}
+  exampleSamplePassword={me.pakKey ?? '<YOUR_PASSWORD>'}
+/>
+```
+
+Four collapsible sections: how-it-works flow (5-step request lifecycle), username token reference (full DSL grammar), IP rotation modes (with TTL table), example curl (parametrized by your username). Pure presentational. Pass `sections={['tokens', 'rotation']}` to render only specific blocks.
+
+### `<PoolStockGrid>` — live country stock (v0.4.1+)
+
+```tsx
+<PoolStockGrid
+  apiRoute="/api/pool"
+  countries={['us', 'de', 'gb', 'es', 'fr', 'pl']}
+  variant="grid"               // or 'compact' for one-line-per-country
+  refreshIntervalMs={30_000}
+/>
+```
+
+Live online endpoint counts per country for both `mbl` mobile and `peer` residential pools. Auto-polls `/api/pool/stock` every 30 s (matches server-side cache TTL). Health pills: green ≥ 5 endpoints, amber < 5.
+
+### Server handlers (v0.4.0+)
+
+`createPoolApiHandlers()` now exports a third method (`DELETE`) for the new session routes:
+
+| Method | Path | Action |
+|---|---|---|
+| `GET` | `<route>/my-sessions` | List current user's sessions |
+| `DELETE` | `<route>/my-sessions/<sessionKey>` | Close one (ownership-checked upstream) |
+| `DELETE` | `<route>/my-sessions` | Close all for current user |
+
+Make sure your route file exports all three: `export const { GET, POST, DELETE } = createPoolApiHandlers({...})`.
+
+---
+
 ## Headless hooks
 
 Prefer to build your own UI? Use the same data layer:
