@@ -407,3 +407,236 @@
 .psx-button-danger:hover:not(:disabled) {
   background: #dc2626;
 }
+
+/* ─── 0.4.1: Docs panel + Stock grid ─── */
+
+.psx-docs {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.psx-docs-section {
+  border: 1px solid var(--psx-border);
+  border-radius: var(--psx-radius);
+  padding: 16px;
+}
+.psx-docs-h3 {
+  margin: 0 0 8px 0;
+  font-size: 16px;
+}
+.psx-docs-h4 {
+  margin: 14px 0 6px 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--psx-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.psx-docs-p {
+  margin: 8px 0;
+  font-size: 13px;
+  line-height: 1.55;
+}
+.psx-docs-muted {
+  color: var(--psx-muted);
+  font-size: 12px;
+}
+.psx-docs-flow {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 12px 0 0 0;
+  padding: 0;
+  list-style: none;
+}
+.psx-docs-flow li {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.psx-docs-step-num {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--psx-primary);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 600;
+}
+.psx-docs-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  margin-top: 6px;
+}
+.psx-docs-table th,
+.psx-docs-table td {
+  padding: 8px 10px;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--psx-border);
+}
+.psx-docs-table th {
+  font-weight: 500;
+  color: var(--psx-muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.psx-docs-table td:first-child {
+  white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+}
+.psx-docs-default-pill {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  background: color-mix(in srgb, var(--psx-primary) 15%, transparent);
+  color: var(--psx-primary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-family: inherit;
+}
+.psx-docs-code-block {
+  background: color-mix(in srgb, var(--psx-muted) 8%, transparent);
+  border: 1px solid var(--psx-border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  overflow-x: auto;
+}
+.psx-docs-curl-wrap {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+.psx-docs-curl {
+  flex: 1;
+  margin: 0;
+}
+
+/* Stock grid */
+.psx-stockgrid {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.psx-stockgrid-totals {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px;
+}
+.psx-stockgrid-total-card {
+  border: 1px solid var(--psx-border);
+  border-radius: var(--psx-radius);
+  padding: 12px;
+  text-align: center;
+}
+.psx-stockgrid-total-num {
+  font-size: 28px;
+  font-weight: 600;
+  color: var(--psx-primary);
+}
+.psx-stockgrid-total-label {
+  font-size: 11px;
+  color: var(--psx-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-top: 4px;
+}
+.psx-stockgrid-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px;
+}
+.psx-stockgrid-card {
+  border: 1px solid var(--psx-border);
+  border-radius: var(--psx-radius);
+  padding: 12px;
+  text-align: center;
+  position: relative;
+}
+.psx-stockgrid-card[data-healthy='true'] {
+  border-color: color-mix(in srgb, #16a34a 40%, var(--psx-border));
+}
+.psx-stockgrid-card[data-healthy='false'] {
+  border-color: color-mix(in srgb, #f59e0b 40%, var(--psx-border));
+}
+.psx-stockgrid-card-flag {
+  font-size: 28px;
+  line-height: 1;
+}
+.psx-stockgrid-card-cc {
+  font-weight: 600;
+  margin-top: 6px;
+}
+.psx-stockgrid-card-name {
+  font-size: 11px;
+  color: var(--psx-muted);
+  margin-top: 2px;
+}
+.psx-stockgrid-card-counts {
+  display: flex;
+  justify-content: space-around;
+  margin-top: 8px;
+  font-size: 13px;
+}
+.psx-stockgrid-card-counts > div {
+  display: flex;
+  flex-direction: column;
+}
+.psx-stockgrid-card-num {
+  font-weight: 600;
+}
+.psx-stockgrid-card-pool {
+  font-size: 10px;
+  color: var(--psx-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.psx-stockgrid-compact {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.psx-stockgrid-compact li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--psx-border);
+  font-size: 13px;
+}
+.psx-stockgrid-cc {
+  font-weight: 600;
+  width: 32px;
+}
+.psx-stockgrid-mbl,
+.psx-stockgrid-peer {
+  color: var(--psx-muted);
+  font-variant-numeric: tabular-nums;
+}
+.psx-stockgrid-help {
+  font-size: 11px;
+  color: var(--psx-muted);
+  margin-top: 6px;
+  text-align: right;
+}
+.psx-stockgrid-loading,
+.psx-stockgrid-error {
+  padding: 16px;
+  text-align: center;
+  color: var(--psx-muted);
+  font-size: 13px;
+}

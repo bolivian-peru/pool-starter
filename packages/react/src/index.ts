@@ -22,6 +22,12 @@ export type {
 export { ActiveSessionsTable } from './ActiveSessionsTable';
 export type { ActiveSessionsTableProps } from './ActiveSessionsTable';
 
+export { PoolDocsPanel } from './PoolDocsPanel';
+export type { PoolDocsPanelProps } from './PoolDocsPanel';
+
+export { PoolStockGrid } from './PoolStockGrid';
+export type { PoolStockGridProps } from './PoolStockGrid';
+
 export {
   usePoolKey,
   usePoolStock,

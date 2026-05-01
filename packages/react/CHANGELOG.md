@@ -2,6 +2,33 @@
 
 All notable changes to this package are documented here.
 
+## 0.4.1 — Pool docs panel + live stock grid
+
+Driven by Coronium's customer-page redesign request: drop in a
+technical reference + live country stock with one component each.
+
+### Added
+
+- **`<PoolDocsPanel>`** — drop-in technical reference. Four sections:
+  How-it-works (5-step request flow diagram), Username token reference
+  (full DSL grammar), IP rotation modes (with TTL table), Example curl
+  (copyable, parametrized by `proxyUsername`). Pure presentational —
+  no backend calls. Compose with `<PoolSessionSpawner>` and
+  `<ActiveSessionsTable>` for full reseller dashboard parity with
+  `client.proxies.sx/pool-proxy`.
+- **`<PoolStockGrid>`** — live per-country online endpoint counts for
+  both `mbl` mobile and `peer` residential pools. Two layouts: `grid`
+  (responsive cards with health pills) and `compact` (one line per
+  country). Auto-polls `/api/pool/stock` every 30 s.
+- New CSS classes: `psx-docs-*`, `psx-stockgrid-*`. Existing brand
+  variables (`--psx-primary`, `--psx-radius`, etc.) flow through.
+
+### Backwards compatibility
+
+Additive only. SDK peer dep stays at `^0.4.0`.
+
+---
+
 ## 0.4.0 — Multi-port spawner + active-sessions table
 
 Coronium-driven UX parity with `client.proxies.sx/pool-proxy`.
