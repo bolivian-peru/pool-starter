@@ -57,10 +57,30 @@ pool-starter/
 - **Add a new server handler** → edit `packages/react/src/server.ts`; keep path-based dispatch simple.
 - **Restyle component without forking it** → users pass `classNames` prop or import/override the CSS custom properties from `styles.css`.
 
+## What's new in SDK 0.3.x (read before writing code)
+
+The SDK matured from 0.2.0 (stable surface, no retry, type-loose) to
+0.3.1 (production-ready). When generating example code or migrations,
+default to these patterns:
+
+- **Retry on by default.** `new ProxiesClient({ retry: { attempts, baseDelayMs, maxDelayMs } })` — fires on 5xx/429/timeouts/network with full jitter, honors `Retry-After`. Skips 4xx (except 429). Pass `retry: false` to disable. **Never** wrap your own retry around SDK calls — it causes thundering herd.
+- **Idempotency-Key on writes.** `create({ ..., idempotencyKey })`, `topUp(id, { ..., idempotencyKey })`, `regenerate(id, { idempotencyKey })`. Tie the key to a domain object (Stripe event id, ledger id, invoice id) — never `randomUUID()` inline at retry time. Platform dedupes within 24h.
+- **Top-up via `poolKeys.topUp()`** (not `update()`). Server-side atomic single-write: `addTrafficGB` is `$inc`-d, `extendDays` extends from `max(now, current_expiresAt)` (never shortens). Replaces the read-modify-write race.
+- **`poolKeys.get(id)`** for single-record fetch. Don't `list()` + filter on a known id.
+- **`ProxiesApiError.requestId`** is populated from the `X-Request-ID` response header. Log it on every error path; paste in support tickets to skip log-grepping.
+- **`PoolStock` shape** (fixed in 0.3.1): `{ pools: { mbl, peer }, totals, generatedAt }`. The 0.2.x type `{ countries: [...] }` never matched the live API. Runtime validator throws `ProxiesError` if upstream drifts again.
+- **`Country`** is now `KnownCountry | (string & {})` — string-assignable so future-supported countries don't require an SDK bump, but `KnownCountry` keeps autocomplete for the curated list.
+
+For migration of existing 0.2.0 integrations, see [`docs/MIGRATION-0.3.0.md`](./docs/MIGRATION-0.3.0.md).
+
+For webhooks (Block 2, target 0.4.0), see [`packages/sdk/docs/WEBHOOKS-DESIGN.md`](./packages/sdk/docs/WEBHOOKS-DESIGN.md).
+
 ## Common agent tasks
 
 ### Add a new country to the SDK
-Edit `packages/sdk/src/types.ts` — the `Country` type union. Also update the TSDoc example in `packages/sdk/src/url.ts`. Then update `packages/sdk/README.md`.
+Edit `packages/sdk/src/types.ts` — the `KnownCountry` type union (NOT
+`Country` — that's `KnownCountry | (string & {})` and is intentionally
+permissive). Also update the TSDoc example in `packages/sdk/src/url.ts`. Then update `packages/sdk/README.md`.
 
 ### Bump the SDK version
 Edit `packages/sdk/package.json` version field. Run `pnpm -r --filter @proxies-sx/pool-sdk build`. Publish with `pnpm publish --filter @proxies-sx/pool-sdk`.
