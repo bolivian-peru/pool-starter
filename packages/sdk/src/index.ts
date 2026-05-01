@@ -16,12 +16,15 @@ export {
 } from './errors';
 export type {
   Country,
+  KnownCountry,
   RotationMode,
   Pool,
   Protocol,
   PoolAccessKey,
   CreatePoolAccessKeyInput,
   UpdatePoolAccessKeyInput,
+  TopUpPoolAccessKeyInput,
+  RetryConfig,
   BuildProxyUrlOpts,
   PoolStock,
   Incident,

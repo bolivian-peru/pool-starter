@@ -233,7 +233,13 @@ const proxyUrl = proxies.buildProxyUrl(key.key, {
 **Other operations:**
 ```ts
 await proxies.poolKeys.list();                     // list all keys with usage + isExpired flag
+await proxies.poolKeys.get(keyId);                 // fetch a single key (v0.3.0+)
 await proxies.poolKeys.update(keyId, { label });   // update label / cap / enabled / expiresAt
+await proxies.poolKeys.topUp(keyId, {              // atomic cap+expiry extension (v0.3.0+, preferred for top-ups)
+  addTrafficGB: 10,
+  extendDays: 30,
+  idempotencyKey: `topup_${invoiceId}`,
+});
 await proxies.poolKeys.regenerate(keyId);          // rotate the secret (old pak_ stops working immediately)
 await proxies.poolKeys.delete(keyId);              // permanent
 await proxies.pool.getStock();                     // live endpoint count by country
@@ -247,15 +253,17 @@ const key = await proxies.poolKeys.create({
   label: 'customer:alice',
   trafficCapGB: 10,
   expiresAt: new Date(Date.now() + 60 * 86_400_000).toISOString(),
+  idempotencyKey: paymentIntentId,                 // safe to retry on 504 (v0.3.0+)
 });
 
-// On top-up, bump cap AND push expiry forward in one call
-await proxies.poolKeys.update(key.id, {
-  trafficCapGB: 25,
-  expiresAt: new Date(Date.now() + 60 * 86_400_000).toISOString(),
+// On top-up — PREFERRED: atomic single-write, race-safe
+await proxies.poolKeys.topUp(key.id, {
+  addTrafficGB: 15,                                // server-side $inc
+  extendDays: 60,                                  // expiresAt = max(now, current) + 60d
+  idempotencyKey: `topup_${invoiceId}`,            // dedupes retries within 24h
 });
 
-// Remove the expiry (perpetual key)
+// Remove the expiry (perpetual key) — still uses update()
 await proxies.poolKeys.update(key.id, { expiresAt: null });
 
 // Helpers
@@ -265,6 +273,33 @@ daysUntilPoolKeyExpiry(key);    // number | null
 ```
 
 The gateway rejects expired keys **immediately** (no wait for the nightly cron). The platform's daily cron (03:30 UTC) sets `enabled=false` on past-expiry keys for tidier admin queries.
+
+**Production-readiness (v0.3.0+):**
+```ts
+// Built-in retry on 5xx/429/timeouts/network errors. Default: 3 attempts.
+// Honors Retry-After. Skip 4xx (except 429). Don't wrap your own retry.
+const proxies = new ProxiesClient({
+  apiKey: process.env.PROXIES_SX_API_KEY!,
+  retry: { attempts: 3, baseDelayMs: 250, maxDelayMs: 4000 },  // these are the defaults
+});
+
+// Idempotency-Key on writes — safe to retry the same call after a 504
+await proxies.poolKeys.create({
+  label: 'customer:alice',
+  trafficCapGB: 10,
+  idempotencyKey: stripeSessionId,   // any 8-128 char [A-Za-z0-9_-]
+});
+
+// Request correlation for support tickets
+try {
+  await proxies.poolKeys.create({ label: 'alice' });
+} catch (err) {
+  if (err instanceof ProxiesApiError) {
+    logger.error({ status: err.status, requestId: err.requestId, body: err.body });
+    // Paste err.requestId in support tickets — it's the X-Request-ID server-side
+  }
+}
+```
 
 ---
 
@@ -278,11 +313,18 @@ Use when the user's backend is **not JavaScript**. The SDK is a thin wrapper aro
 
 | Method | Path | Purpose |
 |---|---|---|
-| `POST` | `/v1/reseller/pool-keys` | Mint a `pak_` key (accepts optional `expiresAt` ISO datetime) |
+| `POST` | `/v1/reseller/pool-keys` | Mint a `pak_` key. Accepts optional `expiresAt` (ISO datetime) and `Idempotency-Key` header |
 | `GET` | `/v1/reseller/pool-keys` | List keys + usage (returns `expiresAt`, server-computed `isExpired`) |
+| `GET` | `/v1/reseller/pool-keys/{keyId}` | Fetch a single key by id (v0.3.0+) |
 | `PATCH` | `/v1/reseller/pool-keys/{keyId}` | Update `label` / `enabled` / `trafficCapGB` / `expiresAt` |
-| `POST` | `/v1/reseller/pool-keys/{keyId}/regenerate` | Rotate secret (old pak_ stops working immediately) |
+| `POST` | `/v1/reseller/pool-keys/{keyId}/topup` | Atomic cap-and/or-expiry extension (v0.3.0+). Body: `{addTrafficGB?, extendDays?}`. Accepts `Idempotency-Key` |
+| `POST` | `/v1/reseller/pool-keys/{keyId}/regenerate` | Rotate secret (old pak_ stops working immediately). Returns full record from v0.3.0 |
 | `DELETE` | `/v1/reseller/pool-keys/{keyId}` | Delete permanently |
+
+**Two universal headers (v0.3.0+):**
+
+- `Idempotency-Key: <8-128 char [A-Za-z0-9_-]>` on `POST`/`PATCH` — dedupes retries within 24h. Pass any unique-per-domain ID (UUIDv4, payment_intent_id, invoice_id). Same key in 24h returns the cached response instead of re-executing.
+- `X-Request-ID` is set on every response by the platform. Echo it in your logs. Paste it in support tickets — that's how we look up your request server-side without back-and-forth.
 
 Base URL: `https://api.proxies.sx/v1`. OpenAPI: <https://api.proxies.sx/docs/api-json>. Swagger UI: <https://api.proxies.sx/docs/api>.
 

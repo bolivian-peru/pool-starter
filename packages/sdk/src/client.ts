@@ -2,16 +2,25 @@ import type {
   ClientConfig,
   CreatePoolAccessKeyInput,
   UpdatePoolAccessKeyInput,
+  TopUpPoolAccessKeyInput,
   PoolAccessKey,
   PoolStock,
   Incident,
   BuildProxyUrlOpts,
+  RetryConfig,
 } from './types';
 import { ProxiesApiError, ProxiesConfigError, ProxiesTimeoutError } from './errors';
 import { buildProxyUrl, GATEWAY_HOST } from './url';
 
 const DEFAULT_BASE_URL = 'https://api.proxies.sx/v1';
 const DEFAULT_TIMEOUT = 30_000;
+
+/** Defaults for {@link RetryConfig}. Picked to be conservative — 3 attempts max, ~5s total worst case. */
+const DEFAULT_RETRY: Required<RetryConfig> = {
+  attempts: 3,
+  baseDelayMs: 250,
+  maxDelayMs: 4_000,
+};
 
 /**
  * Primary entry point to the Proxies.sx reseller API.
@@ -26,6 +35,7 @@ const DEFAULT_TIMEOUT = 30_000;
  * const key = await proxies.poolKeys.create({
  *   label: 'customer:alice',
  *   trafficCapGB: 10,
+ *   idempotencyKey: `mint_${customerId}`,  // tie to your domain
  * });
  *
  * const url = proxies.buildProxyUrl(key.key, { country: 'us', rotation: 'sticky' });
@@ -37,6 +47,7 @@ export class ProxiesClient {
   private readonly gatewayHost: string;
   private readonly timeout: number;
   private readonly fetchImpl: typeof fetch;
+  private readonly retry: Required<RetryConfig> | null;
 
   /** Your reseller `proxyUsername`, e.g. `psx_abc123`. Set at construction time. */
   public readonly proxyUsername: string | undefined;
@@ -61,6 +72,14 @@ export class ProxiesClient {
       throw new ProxiesConfigError(
         'ProxiesClient: global fetch is unavailable. Pass a `fetch` implementation in config.',
       );
+    }
+
+    // Retry: false → null (disabled). Object → merged with defaults. Undefined → defaults.
+    if (config.retry === false) {
+      this.retry = null;
+    } else {
+      this.retry = { ...DEFAULT_RETRY, ...(config.retry ?? {}) };
+      if (this.retry.attempts < 1) this.retry.attempts = 1;
     }
 
     this.poolKeys = new PoolKeysApi(this);
@@ -88,6 +107,27 @@ export class ProxiesClient {
 
   /** @internal Low-level request used by the sub-APIs. Not stable API. */
   async request<T>(path: string, init: RequestInit = {}): Promise<T> {
+    const attempts = this.retry?.attempts ?? 1;
+    let lastErr: unknown;
+
+    for (let attempt = 0; attempt < attempts; attempt++) {
+      try {
+        return await this.requestOnce<T>(path, init);
+      } catch (err) {
+        lastErr = err;
+        if (!this.shouldRetry(err) || attempt === attempts - 1) {
+          throw err;
+        }
+        const delay = this.computeBackoff(err, attempt);
+        await sleep(delay);
+      }
+    }
+    // Unreachable — the loop always throws or returns — but keeps TS happy.
+    throw lastErr;
+  }
+
+  /** @internal Single attempt, no retry logic. Visible for testing. */
+  async requestOnce<T>(path: string, init: RequestInit = {}): Promise<T> {
     const url = `${this.baseUrl}${path}`;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeout);
@@ -124,10 +164,47 @@ export class ProxiesClient {
       }
     }
 
+    const requestId = res.headers.get('x-request-id') ?? undefined;
+
     if (!res.ok) {
-      throw new ProxiesApiError(res.status, text, data);
+      const err = new ProxiesApiError(res.status, text, data, requestId);
+      // Stash Retry-After on the error so the retry loop can read it without re-parsing.
+      const retryAfter = res.headers.get('retry-after');
+      if (retryAfter !== null) {
+        (err as ProxiesApiError & { retryAfterMs?: number }).retryAfterMs =
+          parseRetryAfter(retryAfter);
+      }
+      throw err;
     }
     return data as T;
+  }
+
+  /** @internal Predicate the retry loop uses to classify a thrown error. */
+  private shouldRetry(err: unknown): boolean {
+    if (!this.retry) return false;
+    if (err instanceof ProxiesTimeoutError) return true;
+    if (err instanceof ProxiesApiError) {
+      // 429 + 5xx are retryable. 4xx (other than 429) are programmer errors.
+      return err.status === 429 || err.status >= 500;
+    }
+    // Network-level errors (TypeError on fetch, etc.). Treat as transient.
+    if (err instanceof Error && err.name !== 'AbortError') return true;
+    return false;
+  }
+
+  /** @internal Compute backoff for the next attempt. Honors Retry-After when present. */
+  private computeBackoff(err: unknown, attempt: number): number {
+    const cfg = this.retry!;
+    const retryAfterMs =
+      err instanceof ProxiesApiError
+        ? (err as ProxiesApiError & { retryAfterMs?: number }).retryAfterMs
+        : undefined;
+    if (typeof retryAfterMs === 'number' && retryAfterMs > 0) {
+      return Math.min(retryAfterMs, cfg.maxDelayMs);
+    }
+    const exp = Math.min(cfg.maxDelayMs, cfg.baseDelayMs * 2 ** attempt);
+    // Full jitter: a uniform random in [0, exp). Avoids thundering herd.
+    return Math.floor(Math.random() * exp);
   }
 }
 
@@ -135,14 +212,42 @@ export class ProxiesClient {
 export class PoolKeysApi {
   constructor(private readonly client: ProxiesClient) {}
 
-  /** Mint a new Pool Access Key. Returns the full key record including the secret `key`. */
+  /**
+   * Mint a new Pool Access Key. Returns the full key record including the secret `key`.
+   *
+   * Pass `idempotencyKey` (UUIDv4 or a deterministic ID tied to a domain
+   * object like a `payment_intent_id`) to dedupe retries — if a network
+   * blip causes you to retry, the platform returns the cached response
+   * instead of minting a second key. Idempotency keys live for 24h.
+   *
+   * @example
+   * ```ts
+   * // In your Stripe webhook handler:
+   * const key = await proxies.poolKeys.create({
+   *   label: `customer:${session.customer}`,
+   *   trafficCapGB: 10,
+   *   expiresAt: new Date(Date.now() + 60 * 86400_000),
+   *   idempotencyKey: session.id,  // Stripe checkout session id
+   * });
+   * ```
+   */
   async create(input: CreatePoolAccessKeyInput): Promise<PoolAccessKey> {
     if (!input.label) {
       throw new ProxiesConfigError('poolKeys.create: label is required');
     }
+    const headers: Record<string, string> = {};
+    if (input.idempotencyKey !== undefined) {
+      if (!input.idempotencyKey) {
+        throw new ProxiesConfigError('poolKeys.create: idempotencyKey, if set, must be non-empty');
+      }
+      headers['Idempotency-Key'] = input.idempotencyKey;
+    }
+    // Strip idempotencyKey from the body (it's a header, not a field).
+    const { idempotencyKey: _omit, ...body } = input;
     return this.client.request<PoolAccessKey>('/reseller/pool-keys', {
       method: 'POST',
-      body: JSON.stringify(input),
+      body: JSON.stringify(body),
+      headers,
     });
   }
 
@@ -152,10 +257,31 @@ export class PoolKeysApi {
   }
 
   /**
+   * Fetch a single key by id. Cheaper than `list()` + filter when you
+   * already have an id (e.g. from your own DB).
+   *
+   * @throws {ProxiesApiError} 404 if the key doesn't exist or belongs to
+   *   another reseller.
+   *
+   * @since 0.3.0
+   */
+  async get(keyId: string): Promise<PoolAccessKey> {
+    if (!keyId) throw new ProxiesConfigError('poolKeys.get: keyId is required');
+    return this.client.request<PoolAccessKey>(
+      `/reseller/pool-keys/${encodeURIComponent(keyId)}`,
+    );
+  }
+
+  /**
    * Update a key. Any field left undefined is untouched.
    *
    * @remarks Setting `enabled: false` takes effect immediately — in-flight
    *   gateway sessions using this key are rejected on the next auth check.
+   *
+   *   For top-ups (extending an existing credit), prefer {@link topUp}
+   *   over `update` — it's a single atomic write that handles
+   *   `expiresAt = max(now, current) + days` server-side, avoiding the
+   *   read-modify-write race when concurrent top-ups land on the same key.
    */
   async update(keyId: string, input: UpdatePoolAccessKeyInput): Promise<PoolAccessKey> {
     if (!keyId) throw new ProxiesConfigError('poolKeys.update: keyId is required');
@@ -166,14 +292,83 @@ export class PoolKeysApi {
   }
 
   /**
+   * Top up a key with additional GB and/or extended expiry, atomically.
+   *
+   * - `addTrafficGB` is added to the current cap server-side via a single
+   *   `$inc`. If the existing cap is `null` (unbounded), it stays `null`.
+   * - `extendDays` extends `expiresAt` from `max(now, current_expiresAt)` —
+   *   never shortens. If the key has no expiry, sets one to `now + days`.
+   *
+   * Pass `idempotencyKey` (e.g. your invoice id) to make the call safe to
+   * retry — duplicate calls with the same key return the same result.
+   *
+   * @example
+   * ```ts
+   * // Customer paid for another 10 GB and another 30 days:
+   * const updated = await proxies.poolKeys.topUp(keyId, {
+   *   addTrafficGB: 10,
+   *   extendDays: 30,
+   *   idempotencyKey: `topup_${invoiceId}`,
+   * });
+   * console.log(updated.trafficCapGB, updated.expiresAt);
+   * ```
+   *
+   * @since 0.3.0
+   */
+  async topUp(keyId: string, input: TopUpPoolAccessKeyInput): Promise<PoolAccessKey> {
+    if (!keyId) throw new ProxiesConfigError('poolKeys.topUp: keyId is required');
+    if (input.addTrafficGB === undefined && input.extendDays === undefined) {
+      throw new ProxiesConfigError(
+        'poolKeys.topUp: must pass at least one of addTrafficGB or extendDays',
+      );
+    }
+    if (input.addTrafficGB !== undefined && input.addTrafficGB <= 0) {
+      throw new ProxiesConfigError('poolKeys.topUp: addTrafficGB must be > 0');
+    }
+    if (input.extendDays !== undefined && input.extendDays <= 0) {
+      throw new ProxiesConfigError('poolKeys.topUp: extendDays must be > 0');
+    }
+    const headers: Record<string, string> = {};
+    if (input.idempotencyKey !== undefined) {
+      if (!input.idempotencyKey) {
+        throw new ProxiesConfigError('poolKeys.topUp: idempotencyKey, if set, must be non-empty');
+      }
+      headers['Idempotency-Key'] = input.idempotencyKey;
+    }
+    const { idempotencyKey: _omit, ...body } = input;
+    return this.client.request<PoolAccessKey>(
+      `/reseller/pool-keys/${encodeURIComponent(keyId)}/topup`,
+      { method: 'POST', body: JSON.stringify(body), headers },
+    );
+  }
+
+  /**
    * Rotate the secret value of a key. Use this if the old value was leaked.
    * The previous `pak_` value is invalidated immediately.
+   *
+   * Pass `idempotencyKey` to make the call safe to retry — duplicate
+   * regenerate calls with the same key return the same new value, instead
+   * of rotating twice.
+   *
+   * @returns The full key record with the new `key` field.
+   *   (Until 0.3.0 this returned `{id, key}` only — the old fields are
+   *   still present for backward compat.)
    */
-  async regenerate(keyId: string): Promise<{ id: string; key: string }> {
+  async regenerate(
+    keyId: string,
+    opts: { idempotencyKey?: string } = {},
+  ): Promise<PoolAccessKey> {
     if (!keyId) throw new ProxiesConfigError('poolKeys.regenerate: keyId is required');
-    return this.client.request<{ id: string; key: string }>(
+    const headers: Record<string, string> = {};
+    if (opts.idempotencyKey !== undefined) {
+      if (!opts.idempotencyKey) {
+        throw new ProxiesConfigError('poolKeys.regenerate: idempotencyKey, if set, must be non-empty');
+      }
+      headers['Idempotency-Key'] = opts.idempotencyKey;
+    }
+    return this.client.request<PoolAccessKey>(
       `/reseller/pool-keys/${encodeURIComponent(keyId)}/regenerate`,
-      { method: 'POST' },
+      { method: 'POST', headers },
     );
   }
 
@@ -204,6 +399,31 @@ export class PoolApi {
   getIncidents(): Promise<Incident[]> {
     return this.client.request<Incident[]>('/gateway/incidents');
   }
+}
+
+// ────────────────────────────────────────────────────────────────────────
+//  Helpers
+// ────────────────────────────────────────────────────────────────────────
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Parse an HTTP `Retry-After` header into milliseconds.
+ * Per RFC 7231, the value is either delta-seconds OR an HTTP-date.
+ */
+function parseRetryAfter(header: string): number {
+  const trimmed = header.trim();
+  // Delta-seconds: integer.
+  const seconds = Number(trimmed);
+  if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1000;
+  // HTTP-date.
+  const dateMs = Date.parse(trimmed);
+  if (Number.isFinite(dateMs)) {
+    return Math.max(0, dateMs - Date.now());
+  }
+  return 0;
 }
 
 /** Version string, injected at build time by tsup from package.json. */

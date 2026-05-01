@@ -171,13 +171,23 @@ Endpoints (`X-API-Key` auth, [`psx_` keys minted at client.proxies.sx/account](h
 
 | Method | Path | Purpose |
 |---|---|---|
-| `POST` | `/v1/reseller/pool-keys` | Mint key |
+| `POST` | `/v1/reseller/pool-keys` | Mint key. Accepts `Idempotency-Key` header (v0.3.0+) |
 | `GET` | `/v1/reseller/pool-keys` | List keys + usage |
-| `PATCH` | `/v1/reseller/pool-keys/:id` | Update label / cap |
-| `POST` | `/v1/reseller/pool-keys/:id/regenerate` | Rotate secret |
+| `GET` | `/v1/reseller/pool-keys/:id` | Fetch single key (v0.3.0+) |
+| `PATCH` | `/v1/reseller/pool-keys/:id` | Update label / cap / enabled / expiresAt |
+| `POST` | `/v1/reseller/pool-keys/:id/topup` | Atomic cap+expiry extension (v0.3.0+) |
+| `POST` | `/v1/reseller/pool-keys/:id/regenerate` | Rotate secret. Returns full record from v0.3.0 |
 | `DELETE` | `/v1/reseller/pool-keys/:id` | Delete |
 
 Full spec: [api.proxies.sx/docs/api](https://api.proxies.sx/docs/api) (Swagger UI) | [api.proxies.sx/docs/api-json](https://api.proxies.sx/docs/api-json) (OpenAPI 3.0)
+
+**v0.3.0 production-readiness features:**
+- `Idempotency-Key` header on writes — dedupes retries within 24h. Critical for webhook handlers and payment flows.
+- `X-Request-ID` returned on every response — paste in support tickets to skip log-grepping.
+- `POST /:id/topup` — atomic single-write that does cap `$inc` and extends `expiresAt = max(now, current) + days`.
+- SDK adds built-in retry (3 attempts, exp + jitter, honors `Retry-After`). Disable with `retry: false`.
+
+Migration guide for existing v0.2.0 integrations: [docs/MIGRATION-0.3.0.md](./docs/MIGRATION-0.3.0.md).
 
 Per-language examples (Python, PHP, Go, Ruby): see [SDK README](./packages/sdk/README.md#not-using-javascript-call-the-rest-api-directly).
 

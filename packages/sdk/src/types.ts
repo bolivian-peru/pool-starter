@@ -1,16 +1,44 @@
 /**
- * Countries live in the Proxies.sx Pool Gateway as of 2026.
- * @remarks Pool composition is updated via {@link ProxiesClient.getPoolStock}.
+ * Countries that the Proxies.sx Pool Gateway routes to.
+ *
+ * @remarks
+ * `KnownCountry` is the literal union of countries online today (2026). It
+ * gives autocomplete in IDEs without locking the public API to today's
+ * pool composition. Use it as a hint, not as a contract — the field type
+ * on `BuildProxyUrlOpts.country` is `Country` (broader) for forward
+ * compatibility when new countries come online.
+ *
+ * For the live list, call {@link ProxiesClient.pool.getStock}.
  */
-export type Country = 'us' | 'de' | 'pl' | 'fr' | 'es' | 'gb';
+export type KnownCountry = 'us' | 'de' | 'pl' | 'fr' | 'es' | 'gb';
+
+/**
+ * ISO 2-letter country code. Lowercase. Validated server-side against the
+ * live pool inventory — passing a country with no online endpoints will
+ * return `502` from the gateway with a message listing available alternatives.
+ *
+ * Prefer `KnownCountry` (the literal union) where you want IDE autocomplete.
+ */
+export type Country = KnownCountry | (string & {});
 
 /**
  * IP rotation strategy encoded in the proxy username.
  *
- * - `none` — fresh IP per request (default).
- * - `auto10` / `auto30` — rotate every 10/30 minutes.
- * - `sticky` — pin to the same endpoint for the session's lifetime.
- * - `hard` — force a new endpoint on every request (no reuse).
+ * Behavior at the gateway level:
+ *
+ * - `none` — Default. The gateway picks an endpoint per session and
+ *   reuses it for the session's TTL (1h default). Different connections
+ *   from the same `pak_` may land on different endpoints, but a single
+ *   long-lived connection stays on one IP.
+ * - `auto10` / `auto30` — Same as `none` but the session expires (and a
+ *   new endpoint is picked) every 10 / 30 minutes. Suitable for
+ *   long-running scrapers that want periodic rotation.
+ * - `sticky` — Pin to the same endpoint for the session's lifetime
+ *   regardless of the auto-interval. Combine with `sid` to keep a
+ *   workflow on one IP across reconnects.
+ * - `hard` — On every new connection, force the gateway to pick a
+ *   *different* endpoint than last time. Useful when the previous IP
+ *   got blocked. Burns through endpoints faster — use sparingly.
  */
 export type RotationMode = 'none' | 'auto10' | 'auto30' | 'sticky' | 'hard';
 
@@ -46,7 +74,8 @@ export interface PoolAccessKey {
    *
    * Common pattern: ship a "60-day" credit by setting this to
    * `new Date(Date.now() + 60*86400_000).toISOString()` on mint, then
-   * extending it on each top-up via `update({ expiresAt })`.
+   * extending it on each top-up via `update({ expiresAt })` or — preferred —
+   * {@link PoolKeysApi.topUp}.
    */
   expiresAt: string | null;
   /**
@@ -62,7 +91,7 @@ export interface PoolAccessKey {
   updatedAt?: number;
 }
 
-/** Input to {@link ProxiesClient.poolKeys.create}. */
+/** Input to {@link PoolKeysApi.create}. */
 export interface CreatePoolAccessKeyInput {
   /** Human label. Must be non-empty. Shown in your admin; never sent to the gateway. */
   label: string;
@@ -74,18 +103,67 @@ export interface CreatePoolAccessKeyInput {
    * `null` to remove an existing expiry on update).
    */
   expiresAt?: string | Date | null;
+  /**
+   * Idempotency key (UUIDv4 recommended). When set, the platform dedupes
+   * retries within a 24h window: the first call mints a key and records
+   * the response; subsequent calls with the same `idempotencyKey` return
+   * the cached response without minting a second key.
+   *
+   * Critical for webhook handlers and payment flows where a 504/network
+   * blip would otherwise cause double-mints. If omitted, the SDK auto-
+   * generates one (recommended) — but pass your own when you want it tied
+   * to a domain object (e.g. your `payment_intent_id`).
+   *
+   * @since 0.3.0
+   */
+  idempotencyKey?: string;
 }
 
-/** Input to {@link ProxiesClient.poolKeys.update}. */
+/** Input to {@link PoolKeysApi.update}. */
 export interface UpdatePoolAccessKeyInput {
   label?: string;
   enabled?: boolean;
   trafficCapGB?: number | null;
   /**
    * Pass an ISO/Date in the future to set or extend, `null` to remove an
-   * existing expiry, or omit to leave unchanged. Omit/extend on top-up.
+   * existing expiry, or omit to leave unchanged.
+   *
+   * For top-ups (extending an existing credit), prefer {@link PoolKeysApi.topUp}
+   * — it's a single atomic write and protects against read-modify-write
+   * races when concurrent top-ups land on the same key.
    */
   expiresAt?: string | Date | null;
+}
+
+/**
+ * Input to {@link PoolKeysApi.topUp}. All fields optional but at least
+ * one of `addTrafficGB` / `extendDays` should be set.
+ *
+ * @since 0.3.0
+ */
+export interface TopUpPoolAccessKeyInput {
+  /**
+   * Additional GB to add to `trafficCapGB`. The cap is incremented
+   * atomically server-side. If the existing cap is `null` (unbounded),
+   * the cap stays `null` — passing this on an unbounded key is a no-op.
+   */
+  addTrafficGB?: number;
+  /**
+   * Days to extend the expiry. The new `expiresAt` is computed server-side
+   * as `max(now, current_expiresAt) + extendDays` — so a top-up always
+   * extends from the *later* of "now" and the existing expiry, never
+   * shortens. If the key has no expiry, this sets one to `now + extendDays`.
+   */
+  extendDays?: number;
+  /**
+   * Idempotency key (UUIDv4 recommended). Same semantics as
+   * {@link CreatePoolAccessKeyInput.idempotencyKey} — protects against
+   * double-credits if the request is retried after a 504.
+   *
+   * Tie this to your top-up's domain ID (e.g. `topup_${invoiceId}`) for
+   * effortless deduplication across retries.
+   */
+  idempotencyKey?: string;
 }
 
 /** Optional tokens appended to the proxy username. All fields are optional. */
@@ -129,6 +207,27 @@ export interface Incident {
   affects: string[];
 }
 
+/**
+ * Retry behavior for transient failures.
+ *
+ * Retries fire on `5xx` and `429` responses, on `ProxiesTimeoutError`,
+ * and on network-level errors (`fetch` rejection). They do NOT fire on
+ * `4xx` (other than `429`) — those are programmer errors. Each attempt
+ * waits `min(maxDelayMs, baseDelayMs * 2^n)` plus full-jitter, unless the
+ * server returned `Retry-After` (in which case the SDK honors that, capped
+ * at `maxDelayMs`).
+ *
+ * @since 0.3.0
+ */
+export interface RetryConfig {
+  /** Total attempts including the first. Default 3. Set to 1 to disable retries. */
+  attempts?: number;
+  /** Initial backoff in ms. Default 250. */
+  baseDelayMs?: number;
+  /** Cap on per-attempt sleep. Default 4000. */
+  maxDelayMs?: number;
+}
+
 /** Constructor config for {@link ProxiesClient}. */
 export interface ClientConfig {
   /**
@@ -153,6 +252,22 @@ export interface ClientConfig {
 
   /** Request timeout in ms. Default: 30000. */
   timeout?: number;
+
+  /**
+   * Retry policy for transient failures (`5xx`, `429`, timeouts, network).
+   *
+   * - Pass `false` to disable.
+   * - Pass an object to tune.
+   * - Omit to use the default (3 attempts, 250ms / 1s / 4s + jitter).
+   *
+   * Retries are SDK-internal — the host app sees a single `await` either
+   * resolving or rejecting after backoff is exhausted. Use the SDK's retry
+   * by default and remove your own retry wrappers; combining the two
+   * causes thundering-herd on transient gateway failures.
+   *
+   * @since 0.3.0
+   */
+  retry?: false | RetryConfig;
 
   /**
    * Custom fetch implementation (useful for Node < 18, edge runtimes, or mocking).

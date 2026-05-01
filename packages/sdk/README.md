@@ -67,19 +67,60 @@ interface ClientConfig {
   baseUrl?: string;            // Default: "https://api.proxies.sx/v1"
   gatewayHost?: string;        // Default: "gw.proxies.sx"
   timeout?: number;            // Default: 30000 (ms)
+  retry?: false | RetryConfig; // Default: 3 attempts, 250/1000/4000ms (v0.3.0+)
   fetch?: typeof fetch;        // Override for older Node or mocking
 }
+
+interface RetryConfig {
+  attempts?: number;       // Default 3 (1 = no retries)
+  baseDelayMs?: number;    // Default 250
+  maxDelayMs?: number;     // Default 4000
+}
 ```
+
+The SDK retries on `5xx`, `429`, timeouts, and network errors. It does
+NOT retry on `4xx` (other than `429`) — those are programmer errors.
+Honors the `Retry-After` header on `429`. **Don't wrap your own retry**
+on top — it causes thundering herd. To disable, pass `retry: false`.
 
 ### `proxies.poolKeys`
 
 | Method | Returns | Description |
 |---|---|---|
-| `create({ label, trafficCapGB?, expiresAt? })` | `PoolAccessKey` | Mint a new key |
+| `create({ label, trafficCapGB?, expiresAt?, idempotencyKey? })` | `PoolAccessKey` | Mint a new key |
 | `list()` | `PoolAccessKey[]` | List all your keys with usage |
+| `get(keyId)` | `PoolAccessKey` | Fetch a single key by id |
 | `update(keyId, { label?, enabled?, trafficCapGB?, expiresAt? })` | `PoolAccessKey` | Change any field |
-| `regenerate(keyId)` | `{ id, key }` | Rotate the secret value (invalidates old) |
+| `topUp(keyId, { addTrafficGB?, extendDays?, idempotencyKey? })` | `PoolAccessKey` | Atomically extend cap and/or expiry — use this for top-up flows |
+| `regenerate(keyId, { idempotencyKey? }?)` | `PoolAccessKey` | Rotate the secret value (invalidates old). Returns full record from 0.3.0+ |
 | `delete(keyId)` | `void` | Permanently delete |
+
+#### Idempotency on writes (v0.3.0+)
+
+`create()`, `topUp()`, and `regenerate()` accept an `idempotencyKey`
+(any 8-128 char `[A-Za-z0-9_-]` value). The platform dedupes within
+a 24h window — retried calls return the cached response instead of
+creating a second resource. Tie it to a domain object for effortless
+correlation:
+
+```ts
+// In your Stripe webhook handler:
+const key = await proxies.poolKeys.create({
+  label: `customer:${session.customer}`,
+  trafficCapGB: 10,
+  idempotencyKey: session.id,   // safe to retry on 504
+});
+
+// On a top-up triggered by an invoice:
+await proxies.poolKeys.topUp(keyId, {
+  addTrafficGB: 10,
+  extendDays: 30,
+  idempotencyKey: `topup_${invoiceId}`,
+});
+```
+
+If you omit `idempotencyKey`, the call is NOT idempotent — a network
+retry could mint a second key. Always pass one in webhook/payment paths.
 
 #### Expiry — `expiresAt` (v0.2.0+)
 
@@ -96,13 +137,14 @@ const key = await proxies.poolKeys.create({
   expiresAt: new Date(Date.now() + 60 * 86_400_000).toISOString(),
 });
 
-// On top-up, extend the expiry and bump the cap in one call
-await proxies.poolKeys.update(key.id, {
-  trafficCapGB: 25, // they bought 15 more
-  expiresAt: new Date(Date.now() + 60 * 86_400_000).toISOString(), // fresh 60 days
+// PREFERRED on top-up: atomic single-write, race-safe, idempotent
+await proxies.poolKeys.topUp(key.id, {
+  addTrafficGB: 15,         // bumps cap by 15 (server $inc, no read-modify-write)
+  extendDays: 60,           // expiresAt = max(now, current) + 60 days
+  idempotencyKey: `topup_${invoiceId}`,
 });
 
-// Remove expiry (perpetual key)
+// Remove expiry (perpetual key) — still uses update()
 await proxies.poolKeys.update(key.id, { expiresAt: null });
 ```
 
@@ -233,12 +275,15 @@ try {
   await proxies.poolKeys.create({ label: 'test' });
 } catch (err) {
   if (err instanceof ProxiesApiError) {
+    // err.requestId is the X-Request-ID server-side — paste it in support tickets
+    logger.error({ status: err.status, requestId: err.requestId, body: err.body });
+
     if (err.isAuth) {
       // 401/403 — API key invalid or revoked
     } else if (err.isRateLimited) {
-      // 429 — back off
+      // 429 — already retried by the SDK; surface to user
     } else if (err.isServer) {
-      // 5xx — retry with backoff
+      // 5xx — already retried by the SDK; surface to user
     }
   } else if (err instanceof ProxiesTimeoutError) {
     // Request exceeded the configured timeout
@@ -279,9 +324,18 @@ This SDK is a thin wrapper around a public REST API. Any language with an HTTP c
 |---|---|---|
 | `POST` | `/v1/reseller/pool-keys` | Mint a `pak_` key for a customer |
 | `GET` | `/v1/reseller/pool-keys` | List your keys with usage |
-| `PATCH` | `/v1/reseller/pool-keys/:keyId` | Update label / cap / enabled |
+| `GET` | `/v1/reseller/pool-keys/:keyId` | Fetch a single key (v0.3.0+) |
+| `PATCH` | `/v1/reseller/pool-keys/:keyId` | Update label / cap / enabled / expiresAt |
+| `POST` | `/v1/reseller/pool-keys/:keyId/topup` | Atomic cap-and/or-expiry extension (v0.3.0+) |
 | `POST` | `/v1/reseller/pool-keys/:keyId/regenerate` | Rotate the secret (old value invalidated immediately) |
 | `DELETE` | `/v1/reseller/pool-keys/:keyId` | Permanently delete |
+
+**Idempotency:** `POST` and `PATCH` endpoints accept an `Idempotency-Key`
+header. Same key within 24h → cached response. Use it on every retry-prone
+write (webhook handlers, payment flows).
+
+**Request correlation:** every response carries `X-Request-ID`. Paste this
+in support tickets; it's how we look up your request server-side.
 
 **Mint a key with curl:**
 
