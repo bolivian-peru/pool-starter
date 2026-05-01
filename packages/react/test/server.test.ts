@@ -6,6 +6,19 @@ function makeClientStub(overrides: Partial<{ listKeys: unknown[]; stock: unknown
     proxyUsername: 'psx_abc123',
     poolKeys: {
       list: vi.fn(async () => overrides.listKeys ?? []),
+      // server.ts switched from list().find() to get(keyId) in 0.5.0.
+      // Stub resolves by id from the same listKeys fixture so existing
+      // test cases keep working without each test redefining the stub.
+      get: vi.fn(async (id: string) => {
+        const all = (overrides.listKeys ?? []) as Array<{ id: string }>;
+        const hit = all.find((k) => k.id === id);
+        if (!hit) {
+          const err: any = new Error('Pool access key not found');
+          err.status = 404;
+          throw err;
+        }
+        return hit;
+      }),
       regenerate: vi.fn(async (id: string) => ({ id, key: 'pak_new' })),
     },
     pool: {
