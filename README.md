@@ -43,6 +43,21 @@ This repo takes care of the **software** — SDK, drop-in React component, full 
 
 ---
 
+## Two-sided dashboard pattern (recommended for SaaS resellers)
+
+Most production resellers ship **TWO dashboards**, not one:
+
+- **Reseller Admin Panel** (e.g. `admin.brand.com`) — for your operators/staff. Manage tariffs, customers, top-ups, custom per-customer rates, audit logs. Built on your existing admin framework. Doesn't use the React components below.
+- **Customer Dashboard** (e.g. `dashboard.brand.com`) — for your end-customers. They see their own pak_ key, spawn proxy URLs, manage own sessions, top up. Built with `@proxies-sx/pool-portal-react`'s drop-in components.
+
+Both share a **single backend layer** with one `ProxiesClient` instance (server-side, holds your `psx_` API key). Admin routes call SDK methods directly; customer routes go through `createPoolApiHandlers()` with ownership scoping.
+
+Why two: different audiences, different authz domains, different scale concerns, **catastrophically different failure modes** if you mix them (admin bug = regression; customer bug exposing other customers = P0 data leak).
+
+**Full pattern with concrete examples and a Coronium-style reference architecture: [`docs/TWO-SIDED-DASHBOARD.md`](./docs/TWO-SIDED-DASHBOARD.md).**
+
+---
+
 ## Pick an integration path
 
 Match your stack to a path. The integration differs significantly between them — don't mix.

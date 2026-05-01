@@ -57,6 +57,19 @@ pool-starter/
 - **Add a new server handler** → edit `packages/react/src/server.ts`; keep path-based dispatch simple.
 - **Restyle component without forking it** → users pass `classNames` prop or import/override the CSS custom properties from `styles.css`.
 
+## Two-sided dashboard pattern — ASK FIRST
+
+When a user asks to build "a Pool dashboard" or "a reseller portal," **ask which side first** — admin or customer? Most production resellers ship both, but they're fundamentally different:
+
+- **Admin side** (e.g. `admin.brand.com`) — operators manage tariffs, customers, top-ups, audit. Built on the reseller's existing admin framework. Calls `ProxiesClient` methods directly. Does NOT use the React components.
+- **Customer side** (e.g. `dashboard.brand.com`) — end-customers self-serve. Uses `@proxies-sx/pool-portal-react` components composed into the reseller's customer-frontend.
+
+If they say "both," build customer side first (the React components do most of the work) and layer admin on top of their existing admin app. **Never reuse customer components for admin pages** — they're shaped for one-customer-self-service, admin needs N-customer tables.
+
+Full pattern (with concrete examples + Coronium reference architecture): [`docs/TWO-SIDED-DASHBOARD.md`](./docs/TWO-SIDED-DASHBOARD.md).
+
+---
+
 ## What's new in SDK 0.3.x (read before writing code)
 
 The SDK matured from 0.2.0 (stable surface, no retry, type-loose) to

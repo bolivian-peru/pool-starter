@@ -62,6 +62,14 @@ export interface PoolSessionSpawnerProps {
   defaultSessionType?: SessionType;
   /** Maximum number of URLs the spawner can generate at once. Default 100. */
   maxCount?: number;
+  /**
+   * Show the "Session TTL override" advanced field. When the user sets a
+   * value, it appends `-ttl-<seconds>` to the username DSL — gateway
+   * accepts 60–86400 (1 min – 24 h) and clamps to [60, 86400] server-side.
+   * Default true (reseller dashboards usually want it visible).
+   * @since 0.4.2
+   */
+  showTtlControl?: boolean;
   /** Gateway hostname override (for edge deployments). Default `gw.proxies.sx`. */
   gatewayHost?: string;
   /**
@@ -133,6 +141,9 @@ function randomPrefix(): string {
  * supplied sids with `@` / `:` / `/` survive into the username portion
  * intact.
  *
+ * `ttlSeconds` (when supplied) appends `-ttl-N` to the username — the
+ * gateway accepts 60–86400 and clamps out-of-range values server-side.
+ *
  * @public
  */
 export function buildProxyString(opts: {
@@ -146,6 +157,8 @@ export function buildProxyString(opts: {
   sessionPrefix: string;
   index: number;
   gatewayHost?: string;
+  /** Optional session TTL override in seconds (60–86400). @since 0.4.2 */
+  ttlSeconds?: number;
 }): string {
   const port = opts.protocol === 'http' ? 7000 : 7001;
   const tokens = [opts.pool, opts.country];
@@ -155,9 +168,32 @@ export function buildProxyString(opts: {
   if (opts.rotation !== 'none' && opts.rotation !== 'auto10') {
     tokens.push('rot', opts.rotation);
   }
+  if (opts.ttlSeconds && opts.ttlSeconds >= 60 && opts.ttlSeconds <= 86_400) {
+    tokens.push('ttl', String(opts.ttlSeconds));
+  }
   const username = `${opts.proxyUsername}-${tokens.join('-')}`;
   const host = opts.gatewayHost ?? 'gw.proxies.sx';
   return `${opts.protocol}://${encodeURIComponent(username)}:${encodeURIComponent(opts.proxyPassword)}@${host}:${port}`;
+}
+
+/**
+ * Default session TTL for a given rotation mode (matches the gateway's
+ * `ROTATION_INTERVALS` table). Useful for showing "this session lasts X"
+ * in UIs where the user picks a rotation but doesn't override TTL.
+ *
+ * @public
+ */
+export function defaultTtlSecondsForRotation(rotation: RotationMode): number {
+  switch (rotation) {
+    case 'auto5': return 300;
+    case 'auto10': return 600;
+    case 'auto20': return 1200;
+    case 'auto60': return 3600;
+    case 'sticky': return 3600;
+    case 'hard': return 0;       // per-connection, no reuse
+    case 'none': return 3600;    // 1 h default at the gateway
+    default: return 3600;
+  }
 }
 
 /* ── Component ────────────────────────────────────────────────────────── */
@@ -195,6 +231,7 @@ export function PoolSessionSpawner(props: PoolSessionSpawnerProps): JSX.Element 
     defaultRotation = 'none',
     defaultSessionType = 'unique',
     maxCount = 100,
+    showTtlControl = true,
     gatewayHost,
     onSpawn,
     branding,
@@ -213,6 +250,16 @@ export function PoolSessionSpawner(props: PoolSessionSpawnerProps): JSX.Element 
   const [sessionPrefix] = useState(() => randomPrefix());
   const [generated, setGenerated] = useState<string[]>([]);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+  // TTL override. Empty string = use default-for-rotation. The gateway
+  // clamps to [60, 86400] regardless of what we send.
+  const [ttlSecondsRaw, setTtlSecondsRaw] = useState<string>('');
+  const ttlSeconds = useMemo(() => {
+    if (!ttlSecondsRaw.trim()) return undefined;
+    const n = Number(ttlSecondsRaw);
+    if (!Number.isFinite(n)) return undefined;
+    return Math.max(60, Math.min(86_400, Math.round(n)));
+  }, [ttlSecondsRaw]);
+  const effectiveTtl = ttlSeconds ?? defaultTtlSecondsForRotation(rotation);
 
   const rootStyle = useMemo<CSSProperties>(() => brandingToStyle(branding, style), [branding, style]);
 
@@ -224,6 +271,7 @@ export function PoolSessionSpawner(props: PoolSessionSpawnerProps): JSX.Element 
         buildProxyString({
           proxyUsername, proxyPassword, pool, country, protocol, rotation,
           sessionType, sessionPrefix, index: i, gatewayHost,
+          ttlSeconds,
         }),
       );
     }

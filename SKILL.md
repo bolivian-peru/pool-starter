@@ -33,7 +33,63 @@ If the user mentions Pool Gateway, `pak_` keys, `psx_` reseller keys, `gw.proxie
 
 ## Decide the integration path FIRST
 
-Before writing code, ask which path they want. Don't guess — the implementation differs significantly.
+Before writing code, ask **two** orthogonal questions. Don't guess — the implementation differs significantly.
+
+### Q1 — Which side of the dashboard is this?
+
+For any non-trivial reseller deployment you want **TWO separate dashboards**:
+
+```
+┌──────────────────────────┐         ┌───────────────────────────┐
+│  Reseller Admin Panel    │         │   Customer Dashboard      │
+│  (e.g. admin.brand.com)  │         │  (e.g. dashboard.brand.com) │
+├──────────────────────────┤         ├───────────────────────────┤
+│ Audience: reseller staff │         │ Audience: end-customers   │
+│ Auth: admin/staff role   │         │ Auth: customer JWT/cookie │
+│                          │         │                           │
+│ • Manage tariffs/pricing │         │ • See own pak_ + usage    │
+│ • CRUD customers         │         │ • Spawn proxy URLs        │
+│ • Top-up customer balance│         │ • Manage own sessions     │
+│ • Mint/revoke pak_ keys  │         │ • Top up own balance      │
+│ • View aggregate stats   │         │ • Read DSL docs           │
+│ • Set custom rates       │         │                           │
+│ • Audit log              │         │                           │
+│                          │         │                           │
+│ Built with: existing     │         │ Built with: <PoolPortal>, │
+│   admin framework — does │         │   <PoolSessionSpawner>,   │
+│   NOT use pool-portal-   │         │   <ActiveSessionsTable>,  │
+│   react components.      │         │   <PoolDocsPanel>,        │
+│                          │         │   <PoolStockGrid>         │
+└──────────────────────────┘         └───────────────────────────┘
+              │                                    │
+              └────────┬───────────────────────────┘
+                       ▼
+            ┌────────────────────────┐
+            │   Reseller backend     │
+            │   (single source)      │
+            ├────────────────────────┤
+            │ ProxiesClient with     │
+            │ psx_ API key —         │
+            │ ALWAYS server-side.    │
+            │                        │
+            │ Admin routes call SDK  │
+            │ directly (god-mode).   │
+            │                        │
+            │ Customer routes call   │
+            │ via createPoolApi-     │
+            │ Handlers() with        │
+            │ getSessionUserId() +   │
+            │ getUserKeyId() so each │
+            │ customer only sees     │
+            │ their own data.        │
+            └────────────────────────┘
+```
+
+**Confirm with the user:** "Admin side, customer side, or both?" If they say "both" — build the customer side first (it's faster with the React components), then layer admin on their existing admin framework.
+
+See [`docs/TWO-SIDED-DASHBOARD.md`](./docs/TWO-SIDED-DASHBOARD.md) for the full pattern with concrete examples and a Coronium-style reference architecture.
+
+### Q2 — What's the integration shape for the side(s) you're building?
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -62,7 +118,9 @@ Before writing code, ask which path they want. Don't guess — the implementatio
                                                           (no UI)       (any language)
 ```
 
-Confirm the choice with the user before generating code. Each path follows.
+Note: PATH B uses `<PoolPortal>` + `<PoolSessionSpawner>` + `<ActiveSessionsTable>` + `<PoolDocsPanel>` + `<PoolStockGrid>` for the **customer side**. The **admin side** typically uses PATH C (SDK only) layered on the reseller's existing admin framework — no SDK component is admin-shaped.
+
+Confirm both Q1 (side) and Q2 (path) with the user before generating code.
 
 ---
 
