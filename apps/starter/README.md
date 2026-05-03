@@ -27,7 +27,7 @@ Total lines of app code: **under 1000** including comments. You can read it all 
 ### 1. Clone + install
 
 ```bash
-git clone https://github.com/bolivian-peru/pool-starter.git my-shop
+git clone https://github.com/bolivian-peru/proxy-reseller-kit.git my-shop
 cd my-shop/apps/starter
 pnpm install
 ```
@@ -263,7 +263,7 @@ The platform rejects expired keys at the gateway immediately, and the dashboard'
 ## Contributing upstream
 
 If you fix a bug or add a feature that benefits everyone, please open a PR against
-[github.com/bolivian-peru/pool-starter](https://github.com/bolivian-peru/pool-starter).
+[github.com/bolivian-peru/proxy-reseller-kit](https://github.com/bolivian-peru/proxy-reseller-kit).
 
 ## License
 

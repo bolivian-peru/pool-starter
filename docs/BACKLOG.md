@@ -1,4 +1,4 @@
-# pool-starter — Roadmap & open requests
+# proxy-reseller-kit — Roadmap & open requests
 
 Tracking deferred features so they don't fall on the floor between
 round-trips. Each entry includes the source, target version, and
@@ -83,6 +83,30 @@ From the same 2026‑04‑30 audit:
 - `client.poolKeys.archive(keyId)` (soft-delete with audit retention)
 
 **Status:** Pending until Coronium hits 5K+ active keys (target Q3 2026).
+
+---
+
+## 0.7.x — Distribution (spec-kit extension + create-pool-portal)
+
+Two paired distribution plays. Goal: move new-reseller onboarding from "clone the starter, hand-hold for a week" to "agent runs `/poolkit.scaffold`, working app in 30 minutes." Capture inbound from the AI-agent-driven dev cohort that's growing fast on `github/spec-kit`.
+
+**Items:**
+
+- **`create-pool-portal` CLI** — `npm create pool-portal` scaffold for a full Next.js reseller app with auth, Stripe, dashboard. Currently a Phase-2 placeholder in `apps/`. **Unblocks the extension** — the slash command is a thin orchestrator over this CLI.
+- **`spec-kit-proxy-reseller-kit` extension** — ships ~7 slash commands (`/poolkit.scaffold`, `/poolkit.audit-integration`, `/poolkit.upgrade`, `/poolkit.add-payment`, `/poolkit.add-pak-key-flow`, `/poolkit.add-webhook`, `/poolkit.add-customer-dash`) plus templates for spec-kit's constitution / spec / plan / tasks artifacts. Lives in `packages/spec-kit-extension/` (monorepo, not sibling repo).
+- **Companion preset** — `spec-kit-proxy-reseller-kit-preset` overrides spec-kit defaults with reseller-shaped templates. Independent of the extension; users can install one without the other.
+
+**Source:** Spec-kit analysis 2026-05-03. Full plan: [`../SPEC-KIT-EXTENSION-PLAN.md`](../SPEC-KIT-EXTENSION-PLAN.md). Includes architecture, build sequence, version-pinning matrix, distribution strategy, success metrics, and decision log.
+
+**Status:** Design captured, work deferred. **Trigger conditions** (any one fires → move to active):
+1. `create-pool-portal` ships standalone (the extension is a thin orchestrator over it).
+2. A reseller asks "do you have a spec-kit extension?" — signals demand from the right cohort.
+3. Competing "white-label proxy" extension lands in `github/spec-kit` community catalog. Defend the slot.
+4. ≥ 5 production resellers AND > 4 hours/month spent on per-reseller onboarding. Time to systematize.
+
+If none fire by **2026-Q3**, revisit and decide whether to drop or push.
+
+**Estimated effort when activated:** 2-3 dev-weeks (extension + preset + catalog submission), assuming `create-pool-portal` is already done.
 
 ---
 

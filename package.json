@@ -1,10 +1,10 @@
 {
-  "name": "pool-starter",
+  "name": "proxy-reseller-kit",
   "private": true,
-  "description": "Open-source reseller toolkit for the Proxies.sx Pool Gateway — SDK, drop-in React component, and Next.js starter template.",
+  "description": "Open-source reseller toolkit for the Proxies.sx Pool Gateway — SDK, drop-in React component, and Next.js starter template. Build a branded mobile-proxy reseller business in hours.",
   "repository": {
     "type": "git",
-    "url": "https://github.com/bolivian-peru/pool-starter"
+    "url": "https://github.com/bolivian-peru/proxy-reseller-kit"
   },
   "workspaces": [
     "packages/*",

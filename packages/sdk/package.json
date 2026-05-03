@@ -1,6 +1,6 @@
 {
   "name": "@proxies-sx/pool-sdk",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Typed TypeScript/JavaScript SDK for the Proxies.sx Pool Gateway reseller API. Mint Pool Access Keys, build proxy URLs, and ship a reseller business.",
   "keywords": [
     "proxies",
@@ -13,10 +13,10 @@
   ],
   "license": "MIT",
   "author": "Proxies.sx",
-  "homepage": "https://github.com/bolivian-peru/pool-starter/tree/main/packages/sdk",
+  "homepage": "https://github.com/bolivian-peru/proxy-reseller-kit/tree/main/packages/sdk",
   "repository": {
     "type": "git",
-    "url": "https://github.com/bolivian-peru/pool-starter.git",
+    "url": "https://github.com/bolivian-peru/proxy-reseller-kit.git",
     "directory": "packages/sdk"
   },
   "type": "module",

@@ -483,8 +483,8 @@ resp = Net::HTTP.start(uri.host, uri.port, use_ssl: true) { |h| h.request(req) }
 ## Development
 
 ```bash
-git clone https://github.com/bolivian-peru/pool-starter
-cd pool-starter
+git clone https://github.com/bolivian-peru/proxy-reseller-kit
+cd proxy-reseller-kit
 pnpm install
 pnpm -r --filter @proxies-sx/pool-sdk test
 pnpm -r --filter @proxies-sx/pool-sdk build

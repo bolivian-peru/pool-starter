@@ -11,7 +11,7 @@ Open-source toolkit for embedding the [Proxies.sx Pool Gateway](https://client.p
 2. **`@proxies-sx/pool-portal-react`** — drop-in `<PoolPortal />` component + headless hooks + `createPoolApiHandlers()` Next.js route factory.
 3. **REST API** — language-agnostic. Anyone with an HTTP client (Python, PHP, Go, Ruby, bash + curl, …) can integrate.
 
-Source: <https://github.com/bolivian-peru/pool-starter>. License: MIT.
+Source: <https://github.com/bolivian-peru/proxy-reseller-kit>. License: MIT.
 
 ---
 
@@ -144,7 +144,7 @@ If the user doesn't have an API key yet, instruct them to mint one before any co
 Use when the user wants a **complete branded reseller site** (landing page, magic-link login, Stripe checkout, customer dashboard) and is starting from scratch.
 
 ```bash
-git clone https://github.com/bolivian-peru/pool-starter.git my-shop
+git clone https://github.com/bolivian-peru/proxy-reseller-kit.git my-shop
 cd my-shop/apps/starter
 cp .env.example .env
 # Edit .env: PROXIES_SX_API_KEY, PROXIES_SX_USERNAME, STRIPE_SECRET_KEY,

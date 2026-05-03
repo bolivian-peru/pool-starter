@@ -1,13 +1,13 @@
 <div align="center">
 
-# pool-starter
+# proxy-reseller-kit
 
 **Open-source reseller toolkit for the Proxies.sx Pool Gateway.**
 **Ship a branded mobile-proxy business in an afternoon — or embed mobile proxies into any app, in any language.**
 
 [![npm: pool-sdk](https://img.shields.io/npm/v/@proxies-sx/pool-sdk?label=%40proxies-sx%2Fpool-sdk)](https://www.npmjs.com/package/@proxies-sx/pool-sdk)
 [![npm: pool-portal-react](https://img.shields.io/npm/v/@proxies-sx/pool-portal-react?label=%40proxies-sx%2Fpool-portal-react)](https://www.npmjs.com/package/@proxies-sx/pool-portal-react)
-[![CI](https://github.com/bolivian-peru/pool-starter/actions/workflows/ci.yml/badge.svg)](https://github.com/bolivian-peru/pool-starter/actions/workflows/ci.yml)
+[![CI](https://github.com/bolivian-peru/proxy-reseller-kit/actions/workflows/ci.yml/badge.svg)](https://github.com/bolivian-peru/proxy-reseller-kit/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Node ≥ 20](https://img.shields.io/badge/node-%E2%89%A520-brightgreen.svg)](https://nodejs.org)
 
@@ -76,7 +76,7 @@ Full decision tree + step-by-step for each path lives in [`SKILL.md`](./SKILL.md
 ## Packages
 
 ```
-pool-starter/
+proxy-reseller-kit/
 ├── packages/
 │   ├── sdk/         → @proxies-sx/pool-sdk           Typed API client (npm)
 │   └── react/       → @proxies-sx/pool-portal-react  Drop-in UI + server handlers (npm)
@@ -101,7 +101,7 @@ Non-JS users: skip the npm packages and call the REST API directly. See [`SKILL.
 ### Deploy a full storefront in 10 minutes
 
 ```bash
-git clone https://github.com/bolivian-peru/pool-starter.git my-shop
+git clone https://github.com/bolivian-peru/proxy-reseller-kit.git my-shop
 cd my-shop/apps/starter
 cp .env.example .env         # fill in PROXIES_SX_*, STRIPE_*, AUTH_SECRET
 pnpm install

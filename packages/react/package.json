@@ -1,6 +1,6 @@
 {
   "name": "@proxies-sx/pool-portal-react",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Drop-in React component and headless hooks for embedding a Proxies.sx Pool Gateway reseller dashboard into any React app.",
   "keywords": [
     "proxies",
@@ -14,10 +14,10 @@
   ],
   "license": "MIT",
   "author": "Proxies.sx",
-  "homepage": "https://github.com/bolivian-peru/pool-starter/tree/main/packages/react",
+  "homepage": "https://github.com/bolivian-peru/proxy-reseller-kit/tree/main/packages/react",
   "repository": {
     "type": "git",
-    "url": "https://github.com/bolivian-peru/pool-starter.git",
+    "url": "https://github.com/bolivian-peru/proxy-reseller-kit.git",
     "directory": "packages/react"
   },
   "type": "module",
@@ -51,7 +51,7 @@
     "prepublishOnly": "pnpm build && pnpm test && pnpm typecheck"
   },
   "dependencies": {
-    "@proxies-sx/pool-sdk": "^0.5.0"
+    "@proxies-sx/pool-sdk": "^0.5.1"
   },
   "peerDependencies": {
     "react": ">=18.0.0",

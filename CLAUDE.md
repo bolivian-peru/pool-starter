@@ -1,10 +1,10 @@
-# CLAUDE.md — pool-starter
+# CLAUDE.md — proxy-reseller-kit
 
 > Reading this means you're an AI agent (Claude Code, Cursor, etc.) helping a human build on top of the Proxies.sx Pool Gateway. This file tells you everything you need to know without having to read source. Treat it as authoritative.
 
 ## What this project is
 
-`pool-starter` is the open-source toolkit for **reselling the Proxies.sx Pool Gateway** under your own brand. Three deliverables:
+`proxy-reseller-kit` is the open-source toolkit for **reselling the Proxies.sx Pool Gateway** under your own brand. Three deliverables:
 
 1. **`@proxies-sx/pool-sdk`** — Typed TS/JS client for the reseller API. Mint/list/update Pool Access Keys (`pak_*`), build proxy URLs with the username-token DSL, fetch live stock. Foundation.
 2. **`@proxies-sx/pool-portal-react`** — Drop-in React `<PoolPortal />` + headless hooks + `createPoolApiHandlers()` Next.js route factory. Host auth, trust boundary on the server.
@@ -39,7 +39,7 @@ The `pak_` key is the *customer's* credential. The `psx_` API key is the *resell
 ## Repo layout
 
 ```
-pool-starter/
+proxy-reseller-kit/
 ├── packages/
 │   ├── sdk/              # @proxies-sx/pool-sdk            ✅ built
 │   └── react/            # @proxies-sx/pool-portal-react   ✅ built
@@ -168,6 +168,12 @@ npm publish --access public
 - `GET /pool-keys/:id/audit?before=&limit=` — same scoped to one key. Add as `client.poolKeys.auditForKey(id, { before?, limit? })`.
 
 Adding these is a 0.5.0 minor bump. Reference: see `customer-proxies-sx-main/src/lib/api.ts` `poolKeysApi` for the response shape and `customer-proxies-sx-main/src/pages/PoolKeys.tsx` for end-to-end UX.
+
+## Future direction docs
+
+Long-form plans for work that's been designed but deliberately not started. Read these before proposing roadmap changes — the trade-offs are already laid out.
+
+- [`SPEC-KIT-EXTENSION-PLAN.md`](./SPEC-KIT-EXTENSION-PLAN.md) (root) — durable plan for shipping `proxy-reseller-kit` as a [github/spec-kit](https://github.com/github/spec-kit) extension. Adds `/poolkit.scaffold`, `/poolkit.audit-integration`, `/poolkit.upgrade`, etc. as slash commands on top of spec-kit's harness. Targets 0.7.x, paired with the `create-pool-portal` CLI. Has explicit trigger conditions for moving from "tracked" to "in flight" — don't act before they fire.
 
 ## License
 

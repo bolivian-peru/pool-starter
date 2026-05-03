@@ -1,4 +1,4 @@
-# Contributing to pool-starter
+# Contributing to proxy-reseller-kit
 
 Thanks for your interest in contributing. A quick read below keeps everyone aligned.
 
@@ -11,8 +11,8 @@ Thanks for your interest in contributing. A quick read below keeps everyone alig
 ## Local setup
 
 ```bash
-git clone https://github.com/bolivian-peru/pool-starter.git
-cd pool-starter
+git clone https://github.com/bolivian-peru/proxy-reseller-kit.git
+cd proxy-reseller-kit
 pnpm install
 
 # Build + test both packages
