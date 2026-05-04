@@ -5,6 +5,24 @@ All notable changes to this package are documented here. The format is based on
 semver from 0.3.0 onwards (the public surface is everything exported from
 `dist/index.d.ts`).
 
+## Unreleased — server-side improvements (no SDK change required)
+
+The platform shipped a new pool-reconciliation subsystem on 2026-05-04
+(commit `8df63a49` on the `gb-system-api` repo). It runs every 5 min,
+diffs MongoDB↔Redis, evicts orphans, and triggers re-scans for
+missing endpoints. Server delete/disable now cascades to the pool
+within seconds instead of up to 2 min.
+
+**SDK impact: zero.** `client.pool.getStock()` calls the same endpoint
+(`/v1/gateway/pool/stock`) which now returns status-aware counts —
+stale ghost endpoints from deleted servers are filtered out at the
+source. Existing integrations get more accurate numbers automatically;
+no version bump required.
+
+If you want to debug "why is country X showing N peers/modems?", the
+new `/v1/admin/pool/diff` endpoint (admin-only, not in SDK) returns
+the live expected-vs-actual diff. Reach out if you need access.
+
 ## 0.5.0 — Pool Access Key security hardening
 
 Tracks the platform's May 2026 pak_ security update. Three new endpoints,
